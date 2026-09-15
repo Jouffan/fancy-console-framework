@@ -105,7 +105,7 @@ instance methods:
 ```java
 Styler s = Styler.of(Theme.DEFAULT)
                  .with(Theme.Role.HIGHLIGHT, Style.fg(Color.BRIGHT_CYAN).bold());
-IO.println("found " + s.highlight("42") + " matches");
+System.out.println("found " + s.highlight("42") + " matches");
 ```
 
 Implementation is a one-line delegation to `Text.styledWith(caps, style,
@@ -121,9 +121,11 @@ Glyph-tier-aware one-liners, all colourable, all returning `String`:
 `warn`, `bullet`, `banner`, `bar(Color, fraction, width)`. Plus a
 `print…` twin for each that writes to `System.out` — the only printing
 methods in mode 1, and deliberately trivial. Width, when not given, comes
-from `Capabilities.size()` (JDK/env-derived, no terminal opened), falling
-back to 80 when not a TTY. Glyphs come from `internal.Glyphs`, so a rule
-is `─` on FULL and `-` on ASCII without the caller knowing.
+from `COLUMNS` if it parses as a positive integer, else 80 (TX-15).
+Never JLine, never a live terminal size (TX-2). Many shells will hit
+the fallback because bash does not export `COLUMNS` to children; that
+is expected. Glyphs come from `internal.Glyphs`, so a rule is `─` on
+FULL and `-` on ASCII without the caller knowing.
 
 ### `Color` **[exists, extend]**
 
@@ -150,21 +152,32 @@ A thin per-instance facade over the process-wide session in
 - `close()` idempotent.
 
 To change:
-
-- `pin(AsciiWidget)` → `place(Widget, Placement)` returning
-  `WidgetHandle { update(); send(WidgetEvent); focus(); remove(); }`.
-- `logTo(LogPane)` to redirect println into a widget when the canvas
-  fills the screen (CV-13).
+WidgetId id(); update(); send(WidgetEvent); focus();
+  remove(); }`. `place` mints a process-unique `WidgetId` that is never
+  reused after `remove`. `update`/`focus`/`remove` ship in M3; `send`
+  ships in M4 and stamps `target()` onto the event.
+- `logTo(LogPane)` additionally delivers each `println` as a
+  `LogMessage` (CV-13). It MUST NOT suppress the underlying stream
+  emission.
+- `onKey(KeyHandler)` to register the application-level handler (CV-47).
+- `canvasHeight(int)` on `ConsoleOptions` (CV-6). Height is never a
+  percentage of the viewport at this option; fill-remaining is a
+  *widget* size, resolved after `h` is known
 - `onKey(KeyHandler)` to register the application-level handler (CV-47).
 - `canvasHeight(int)` / `canvasHeight(Fill)` on `ConsoleOptions`.
 
 ### 4.2 `AsciiCanvas` **[new]**
-
-Owns the widget list, the layout, the focus, and the two `CanvasBuffer`s.
-Per frame, on the render thread:
-
-1. **Drain** the `EventQueue` — deliver each `WidgetEvent` to its target
-   widget's `onEvent`. Deliver each queued `KeyEvent` by the CV-47 rule.
+;
+   CV-27). Put that size on this frame's `RenderContext`. Do **not**
+   read `Capabilities.size()` for layout — that value is probe-time
+   (CR-12). Canvas width **is** the terminal width (CV-7); there is no
+   narrower-canvas option. Resolve canvas height `h` per CV-6
+   (config, else sum of definite docked vertical sizes, else full
+   viewport) and clamp to the terminal height. Then run `Layout`
+   (dock in declaration order, then free-placed overlays). Percentages
+   use `floor`; leftover cells from rounding go to the last
+   percentage-or-fill widget on that axis (CV-26). Negotiate any
+   widget below widget's `onEvent`. Deliver each queued `KeyEvent` by the CV-47 rule.
 2. **Measure** — read terminal size from `TerminalPort` (never cached).
    Canvas width **is** the terminal width (CV-7); there is no
    narrower-canvas option. Clamp canvas height to the terminal height,
@@ -204,12 +217,16 @@ chains onto a pre-existing replacement; the library's own writes bypass
 capture; restore returns the exact prior instances from `finally` and
 from the shutdown hook; capture starts/stops on the widget-count 0↔1
 transition. These are requirements CV-12 and CV-14…CV-21 and they are
-the reason the mode exists — do not "simplify" them while retargeting.
-
-### 4.5 `EventQueue` and `WidgetEvent` **[new]**
-
-```java
-public sealed interface WidgetEvent permits
+the reason the mode exists — do not "simplify" them whil`WidgetId` is
+minted at `place`, unique for the process, never reused after `remove`.
+`target()` is a field on every record, stamped by `handle.send` (or by
+the engine for `Tick`). The queue is a bounded MPSC structure: any
+thread — platform or virtual — may `offer`; only the render thread
+`drain`s, under the render lock. Overflow policy: coalesce same-type
+events to the same target (a burst of `ProgressUpdate` keeps only the
+newest), then drop oldest. `LogMessage` is never coalesced. NFR-5 does
+not apply to this queue: records MAY allocate; the no-alloc rule is
+layout/paint/diff/flush onlyaled interface WidgetEvent permits
     ProgressUpdate, Indeterminate, Completed, GraphValues, GraphAppend,
     LogMessage, SetText, SetStatus, Tick, Custom { WidgetId target(); }
 ```
@@ -255,16 +272,15 @@ returns handled. It is never broadcast. Exact order, no exceptions:
 The first listener that returns handled consumes the event; later
 listeners MUST NOT see it. Returning not-handled (or never being
 offered the event) is how a widget ignores keys. A shipped widget MAY
-return handled for a specific key to cycle its own visualisation; that
-is the widget's `onKey`, not a built-in, and MUST NOT become a form
-(CV-68, CV-69).
+return handled for a specific key to cycle its own visualisation;
+that is the widget's `onKey`, not a built-in (CV-68).
 
-Built-ins are **only** `Ctrl-C` and `Ctrl-L`. `Tab` / `Shift-Tab`
-focus cycling, caret drawing, and selection chrome are out of scope
-(CV-48, CV-69); do not add them as bindings. Focus is a slot: at most
-one widget is focused; placing a key-accepting widget fills the slot
-if empty; `handle.focus()` sets it; removing the focused widget
-clears it. There is no focus navigator.
+Built-ins are **only** `Ctrl-C` and `Ctrl-L`. Do not add `Tab` /
+`Shift-Tab`, caret drawing, or selection chrome as bindings (CV-48).
+Focus is a slot: at most one widget is focused; placing a
+key-accepting widget fills the slot if empty; `handle.focus()` sets
+it; removing the focused widget clears it. There is no focus
+navigator.
 
 Raw-mode lifetime: entered when the canvas is live **and** at least
 one of (a placed widget declares `acceptsKeys()`, an application
@@ -346,10 +362,13 @@ Windows that is the console input code page, not the output one.
   above it and the canvas is intact afterwards.
 - `AsciiCanvas.dump()` for layout tests with no terminal.
 - `EventReplayer` for widget tests with no threads.
-- Golden files for truecolor/FULL, ANSI256, ANSI16/CP437, NONE/redirected.
+- Golden files under `src/test/resources/golden/` for truecolor/FULL,
+  ANSI256, ANSI16/CP437, NONE/redirected; JUnit 5; read as UTF-8 with
+  `\n` endings (NFR-13).
 - Source-scan tests for CR-21/22/23 and CV-22 (no `\u001b` outside `Ansi`,
   no `org.jline` outside `TerminalPort`, no non-ASCII literal outside
   `Glyphs`, no public method on `FancyConsole` returning a `Writer`).
+  JPMS: `module-info.java` does not export `dev.consolekit.internal`.
 
 ## 9. Migration order
 
@@ -361,18 +380,20 @@ Windows that is the console input code page, not the output one.
 3. Retarget `LiveRegion` from line-diff to cell-diff behind the existing
    "print above region" path; extend `VirtualTerminal`; port the existing
    scrollback/capture tests to assert the same thing against a canvas.
-4. Replace `FancyConsole.pin` with `place`; delete `AsciiWidget`,
-   `PinHandle`, `PinContext`, `PinStack`; rewrite `PinnedClock` as a
-   docked `Clock`.
-5. `EventQueue`, `WidgetEvent`, `EventRecorder/Replayer`, then the
-   event-driven catalogue (M4).
+4. Replace `FancyConsole.pin` with `place` (`update`/`focus`/`remove`
+   only — no `send` yet). Then delete `AsciiWidget`, `PinHandle`,
+   `PinContext`, `PinStack`; rewrite `PinnedClock` as a docked `Clock`.
+   Keep the obsolete types compiling until this step; do not delete
+   them up front.
+5. `EventQueue`, `WidgetId`, `WidgetEvent`, `handle.send`,
+   `EventRecorder/Replayer`, then the event-driven catalogue (M4).
 6. Content-side encoding (M5) — before keys, because CR-37 needs it.
 7. **NFR-19 start-gate (not a milestone):** the conhost rows of NFR-14
    MUST be verified for canvas mode **before M6 starts**. This is not a
    done-criterion of M6 and is not deferred to M7. conhost scrolling
    under `println`-above-region is the risk; macOS rows wait for M7.
-8. `KeyListener`, focus slot, single-consumer forwarding (M6). No form
-   widgets (CV-67, CV-69). Built-ins are `Ctrl-C` and `Ctrl-L` only.
-   Do not start this step until step 7 has passed.
+8. `KeyListener`, focus slot, single-consumer forwarding (M6). Built-ins
+   are `Ctrl-C` and `Ctrl-L` only. Do not start this step until step 7
+   has passed.
 9. Remaining NFR-14 rows of `SUPPORTED-TERMINALS.md` (M7), including
    macOS. Filling those rows does not relax the NFR-19 conhost gate.

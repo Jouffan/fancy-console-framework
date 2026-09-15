@@ -90,7 +90,7 @@ alternate screen buffer is dropped (see §9).
 | Lifecycle | none | lazy on first `new FancyConsole()`, shared, auto-restoring |
 | Input | none | `KeyListener`: offer until handled (focus, then app, then built-ins) |
 | Concurrency | stateless | render thread fed by an event queue |
-| Module | `consolekit` | `consolekit` |
+| Module | `dev.consolekit` | `dev.consolekit` |
 
 ### 1.2 Canvas mode, target picture
 
@@ -267,8 +267,9 @@ not better: a single mis-measured string shifts every cell to its right.
   `FORCE_COLOR`/`CLICOLOR_FORCE`, TTY-ness, `TERM`, `TERM_PROGRAM`,
   `WT_SESSION`, `COLORTERM`.
 - **CR-12** Capabilities MUST carry colour depth, glyph tier, TTY-ness,
-  supported attributes, terminal size, output and input charset, and a
-  human-readable reason when anything was degraded.
+  supported attributes, a **probe-time** terminal size (diagnostic only
+  — MUST NOT be used for layout; see CR-17, CV-27), output and input
+  charset, and a human-readable reason when anything was degraded.
 - **CR-13** Non-TTY output (pipe, file, CI) MUST be detected.
 - **CR-14** Explicit configuration MUST be settable at most once, before
   any output; a later attempt MUST fail loudly rather than silently
@@ -282,8 +283,11 @@ not better: a single mis-measured string shifts every cell to its right.
 - **CR-16** `Renderable` MUST be a pure function from a render context to
   a list of styled lines: same context, same widget state, same output.
   No cursor access, no global state, no I/O.
-- **CR-17** The render context MUST carry width, glyph tier, theme and
-  capabilities. Renderables and widgets MUST be given their context and
+- **CR-17** The In canvas mode it MUST also carry the per-frame canvas
+  size from CV-27. Renderables and widgets MUST be given their context
+  and MUST NOT reach for process-wide state. Reading
+  `Capabilities.size()` for layout after a resize is a defect; the
+  context is the only size that is current MUST be given their context and
   MUST NOT reach for process-wide state.
 - **CR-18** The static widget catalogue (`Table`, `Box`, `KeyValueBlock`,
   `Tree`, `Sparkline`, `Rule`, `PatternHighlighter`) MUST be usable from
@@ -302,6 +306,8 @@ not better: a single mis-measured string shifts every cell to its right.
 - **CR-22** Only one class MAY touch the underlying terminal library
   (JLine).
 - **CR-23** Only one class MAY contain non-ASCII character literals.
+  Raising `Cancelled` on `Ctrl-C` (CV-49) is **not** a render path and
+  is not a violation of this requirement.
 - **CR-24** No render path MAY throw. A failure in rendering MUST be
   caught, MUST disable further animation, MUST warn once, and MUST fall
   back to plain output. A broken widget MUST NOT crash the caller's job.
@@ -326,8 +332,9 @@ name says `print`.
 
 - **TX-1** Colouring MUST be available as stateless static helpers
   returning a plain `String` with escapes already applied.
-- **TX-2** Text mode MUST NOT open a terminal, load native code, or start
-  a thread — ever, under any code path. It MAY read the resolved
+- **TX-2** Text mode MUST NOT open a termiand the probe-time width from
+  TX-15) because those come from the JDK and environment, not from JLine.
+  Discovering width via JLine is a defect the resolved
   capabilities (colour depth, glyph tier, terminal width) because those
   come from the JDK and environment, not from JLine.
 - **TX-3** When the environment can't render escapes, text mode MUST
@@ -385,9 +392,12 @@ name says `print`.
   MUST exist (`Snippets.printLine(Color)`), writing the snippet plus a
   newline to `System.out`. These are the *only* text-mode methods that
   print, and they MUST go through `System.out` exactly as the caller
-  would, never through a terminal port.
-- **TX-15** Snippets that need a width and are not given one MUST use the
-  detected terminal width from capabilities, falling back to 80 when the
+  would, never through a terminal port.resolve
+  it, in this order: the `COLUMNS` environment variable if it parses as a
+  positive integer; else 80. The library MUST NOT open a terminal or call
+  JLine to discover width (TX-2). Many interactive shells will hit the
+  80 fallback because bash does not export `COLUMNS` to child processes;
+  that is not a defect and MUST NOT be "fixed" by reaching for JLineidth from capabilities, falling back to 80 when the
   output is not a TTY.
 
 ---
@@ -411,10 +421,18 @@ name says `print`.
   (above the canvas) or a paint of the canvas. There is no third thing.
   *(was FC-4)*
 - **CV-6** The canvas MUST occupy the bottom `h` rows of the viewport in
-  the **normal** screen buffer, where `h` is resolved from explicit
-  configuration, else the height the current layout asks for, else the
-  full viewport. The alternate screen buffer is NOT used. *(replaces v2
-  CV-2; see §9)*
+  the **normal** screen buffer. `h` is resolved in this order, then
+  clamped to the terminal height (CV-7):
+  1. explicit configuration (`ConsoleOptions.canvasHeight`), if set;
+  2. else the layout's **intrinsic height**, if every *docked* widget has
+     a definite vertical size (fixed cells or `preferred`). Intrinsic
+     height is the sum of those sizes. Free-placed overlays do not
+     contribute. A docked widget whose vertical size is percentage or
+     fill-remaining makes intrinsic height undefined — fall through;
+  3. else the full viewport.
+  The last-docked-takes-remaining rule (CV-24) runs **after** `h` is
+  known; it MUST NOT feed back into this resolution. The alternate
+  screen buffer is NOT used. *(replaces v2 CV-2; see §9)*
 - **CV-7** Canvas width MUST be the terminal width, re-read per frame
   (CV-27). Canvas height MUST be clamped to the terminal height.
 - **CV-8** A minimum canvas size MUST be enforced; below it the library
@@ -436,13 +454,14 @@ name says `print`.
 - **CV-12** While the canvas is live, scrollback writes MUST be routed so
   that the new line appears above the canvas and the canvas is repainted
   intact. The two MUST NOT smear. *(was FC-14)*
-- **CV-13** When the canvas fills the whole viewport, scrollback lines
-  still MUST be emitted (they scroll off immediately, but a redirected or
-  captured stdout still sees them). An application that wants them
-  visible MUST attach a `LogPane` widget as the log sink
-  (`console.logTo(logPane)`), after which `println` is delivered to that
-  widget as a `LogMessage` event instead of to scrollback. Exactly one
-  sink MAY be attached; attaching `null` restores scrollback routing.
+- **CV-13** Scrollback lines MUST always be emitted to the underlying
+  stream, including when the canvas fills the whole viewport (they
+  scroll off immediately, but a redirected or captured stdout still
+  sees them). An application that wants them *visible* MUST attach a
+  `LogPane` as the log sink (`console.logTo(logPane)`). Attaching a
+  sink **additionally** delivers each `println` to that widget as a
+  `LogMessage`; it MUST NOT suppress the stream emission. Exactly one
+  sink MAY be attached; attaching `null` stops the extra delivery.
 
 ### 5.3 Protected output — *unchanged from v2 §5.3*
 
@@ -490,8 +509,13 @@ terminal" means these lines, mechanically.
 - **CV-26** Per-axis size MUST be expressible as fixed cells, a percentage
   of the canvas, or fill-remaining, with optional min/max clamps. A widget
   MAY additionally declare a content-derived preferred size, which the
-  layout uses when the placement says `preferred`. *(was CV-9; the
-  deferred option is now in — `LogPane` and `ProgressBar` both need it)*
+  layout uses when the placement says `preferred`. Percentages convert
+  with `floor(percent × available / 100)`. After fixed and percentage
+  sizes are taken, fill-remaining widgets share what is left, again with
+  floor. Leftover cells from rounding go to the last widget on that axis
+  that is percentage or fill. The same inputs MUST produce the same
+  leftover assignment (CV-28). *(was CV-9; the deferred option is now
+  in — `LogPane` and `ProgressBar` both need it)*
 - **CV-27** Terminal size MUST be re-read per frame, never cached. On
   resize the canvas MUST be recomputed, all widgets re-laid-out, the front
   buffer discarded, and a full repaint issued. *(was FC-27, CV-4, CV-5)*
@@ -527,7 +551,12 @@ terminal" means these lines, mechanically.
   bar out of eight repaints alone. *(was CV-18, FC-11)*
 - **CV-38** Placing a widget MUST return a handle offering `update`,
   `send(WidgetEvent)`, `focus`, and `remove`; `remove` MUST be idempotent.
-  *(was FC-12)*
+  `place` mints a `WidgetId` that is unique for the life of the process
+  and MUST NOT be reused after `remove`, so a late event cannot hit a
+  replacement widget. The handle exposes that id. `handle.send` stamps
+  it onto the event; each `WidgetEvent` record carries `target()` as a
+  field (CV-39, CV-41). `update` / `focus` / `remove` ship in M3;
+  `send` ships in M4. *(was FC-12)*
 
 ### 5.6 Widget events
 
@@ -697,14 +726,20 @@ focused) is its own business and MUST NOT grow a second bus.
   MUST exist before any canvas milestone is called done.
 - **NFR-4** A frame at 200×50 MUST lay out, paint, diff and flush in well
   under 16 ms.
-- **NFR-5** Steady-state rendering MUST NOT allocate per frame.
+- **NFR-5** Steady-state **layout, paint, diff and flush** MUST NOT
+  allocate per frame. The event queue, `WidgetEvent` records, and key
+  decoding MAY allocate; this requirement does not apply to them.
 - **NFR-6** No flicker, and no scrolling of the terminal other than by
   `println`, during normal operation of canvas mode.
 - **NFR-7** The concurrency model MUST be explicit and documented: text
   mode is stateless; canvas mode is one render thread fed by one queue,
   with the key listener as a producer. Widgets updated from other threads
   MUST NOT be able to tear a frame.
-- **NFR-8** Runtime dependencies MUST be limited to JLine. No jansi, ever.
+- **NFR-8** Runtime dependencies MUST be limited to JLin Source and
+  bytecode target **JDK 21**. The build is Maven (`mvn verify`).
+- **NFR-9b** The artefact is a real JPMS module `dev.consolekit` with
+  `module-info.java`. `dev.consolekit.internal` MUST NOT be exported;
+  NFR-10 source-scan tests back that, they do not replace it.e. No jansi, ever.
   No ncurses.
 - **NFR-9** The build MUST NOT require preview features.
 - **NFR-10** Each structural invariant (CR-21 through CR-23, CV-22) MUST
@@ -712,7 +747,8 @@ focused) is its own business and MUST NOT grow a second bus.
   convention.
 - **NFR-11** No rendered line MAY exceed the available width as measured
   per CR-6, in either mode, with any of the CR-10 fixture strings.
-- **NFR-12** Static mutable state MUST be confined to one documented
+- **NFR-12** `\n` line endings. Tests are JUnit 5. Golden files live
+  under `src/test/resources/golden/`le state MUST be confined to one documented
   runtime holder (`ConsoleRuntime`).
 - **NFR-13** Golden-file tests MUST cover at least truecolor/FULL,
   ANSI256, ANSI16/CP437, and NONE/redirected, read with explicit UTF-8 and
@@ -767,8 +803,8 @@ are listed with what survives.
 | M1 | Core model, capabilities, `Text` | done (v2 M0–M1); `Text` complete |
 | M1b | `Styler`, `Snippets`, `Color` named constants (TX-10…TX-15, CR-40) | not started |
 | M2 | Static `Renderable` catalogue | done (v2 M2) |
-| M3 | Canvas engine: buffers, layout, blit, flush diff, canvas-above-scrollback routing, stream capture, restore paths, virtual terminal (CV-1…CV-38, CV-53…CV-63) | partially reusable from v2 M3 — see §11 |
-| M4 | Event core + event-driven widget catalogue (CV-39…CV-44, CV-65, CV-66) | not started |
+| M3 | Canvas engine: buffers, layout, blit, flush diff, canvas-above-scrollback routing, stream capture, restore paths, virtual terminal, `place`/`update`/`focus`/`remove` (CV-1…CV-38 except `handle.send`, CV-53…CV-63). CV-9 and CV-13 are new in this range. | partially reusable from v2 M3 — see §11 |
+| M4 | Event core (`WidgetId`, `WidgetEvent`, `handle.send`) + event-driven widget catalogue (CV-38 `send`, CV-39…CV-44, CV-65, CV-66) | not started |
 | M5 | Content-side encoding robustness (CR-29…CR-36, CR-39) | not started |
 | M6 | `KeyListener`, single-consumer forwarding, focus slot (CV-45…CV-52, CV-68, CV-69). No form widgets. Do not start until NFR-19 has passed. | not started |
 | M7 | Remaining NFR-14 platform rows (`SUPPORTED-TERMINALS.md`), including macOS. Not a substitute for the NFR-19 conhost gate. | 1 of 10 |
@@ -806,10 +842,29 @@ Decided in this revision, recorded so they aren't reopened by accident:
   or selection chrome in this library.
 - **Content-derived sizing: yes**, optional per widget (CV-26).
 - **One colour type**, `Color` (CR-40). `AsciiColor` is not a class.
-- **One module.** No `consolekit-canvas` split; the canvas depends on the
-  same core and there is no longer a second lifecycle to isolate.
+- **One JPMS module**, `dev.consolekit`, with `module-info.java`.
+  `dev.consolekit.internal` is not exported. No `consolekit-canvas`
+  split; the canvas depends on the same core and there is no longer a
+  second lifecycle to isolate.
 - **The event model is shared** by all widgets; there is no separate
   "runtime widget" vs "canvas widget" distinction any more.
+- **JDK 21, Maven, no preview.** `IO.println` is not used.
+- **Terminal size for layout is per-frame** (CV-27), on `RenderContext`.
+  `Capabilities.size()` is probe-time only (CR-12).
+- **Text-mode width** is `COLUMNS` then 80. Never JLine (TX-2, TX-15).
+- **Canvas height** (CV-6) is config, else sum of definite docked
+  vertical sizes, else full viewport. Fill/percent do not feed back.
+- **`logTo` is additional**, not instead-of (CV-13). Stream emission
+  always happens.
+- **`WidgetId`** is minted at `place`, process-unique, never reused.
+  It is a field on every `WidgetEvent`. `send` is M4.
+- **NFR-5** applies to layout/paint/diff/flush, not to the event queue.
+- **Percentage leftover** goes to the last percentage-or-fill widget
+  on that axis (CV-26).
+- **Ctrl-C `Cancelled`** is not a render-path throw (CR-24).
+- **Obsolete pin types stay compiling** until `place` lands; then they
+  are deleted. Do not break the branch up front.
+- **Tests:** JUnit 5; goldens at `src/test/resources/golden/`.
 
 Still open:
 
@@ -817,7 +872,7 @@ Still open:
    specified; the bound and whether `LogMessage` is ever droppable
    (probably not — drop `Tick`/`GraphAppend` first) need deciding when M4
    starts.
-2. **Nested widgets (CV-32).** Flat docking plus `Panel`-with-blit covers
+2. **Nested widgets (CV-32).** Flat docking plus `Panestrip engine covers most; **CV-9 (lazy start) and CV-13 (`logTo`) are new** and not implemented
    §1.2. Add composition when a widget actually needs it.
 3. **Should `Snippets.print…` exist at all** (TX-14), given that every
    other text-mode method returns a `String`? Kept because the sketch
@@ -893,6 +948,7 @@ Still open:
 | `render.AsciiWidget`, `render.PinHandle`, `render.PinContext` | **obsolete** — replaced by `canvas.Widget` and `canvas.WidgetHandle` |
 | `internal.PinStack` | **obsolete** — strip stacking is replaced by layout (CV-24/25) |
 | `internal.LiveRegion` | **reinterpret** — it already owns "bottom N rows repainted in place above scrollback"; it becomes the canvas's flush target, but must be changed from line-diffing to cell-diffing (CV-54) |
+| `internal.VirtualTerminal` | **reinterpret** — keep; extend from line frames to a cell grid so NFR-3 asserts what the user sees after cell flush |
 | `internal.ScrollbackWriter`, stream capture | **keep** — CV-12, CV-14…CV-21 are unchanged |
 | `internal.AnimationLoop` | **reinterpret** — same thread and fps rules (CV-57), but its tick must drain the event queue (CV-39) and the key queue (CV-51) before painting |
 | `FancyConsole.pin(AsciiWidget)` | **obsolete** — replaced by `place(Widget, Placement)` |
