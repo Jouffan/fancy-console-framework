@@ -94,21 +94,29 @@ alternate screen buffer is dropped (see §9).
 
 ### 1.2 Canvas mode, target picture
 
-Canvas 60×12 at the bottom of an 80×24 terminal, clock docked top-right,
-status bar docked bottom, a progress widget docked top-left, log lines
-scrolling above:
+Canvas **80×12** at the bottom of an 80×24 terminal. CV-7: canvas width
+**is** the terminal width; there is no narrower-canvas option. Clock
+docked top-right, status bar docked bottom, progress docked top-left.
+The three lines above the box are `println` into scrollback. The fenced
+block is 80 columns; the box is 12 rows. The other 9 viewport rows of
+scrollback are omitted.
 
 ```
-$ myjob run
-scanning input/                          ◄── println, scrollback
-found 1 204 files                        ◄── println, scrollback
-┌──────────────────────────────────────────┬─────────────┐
-│ ████████████░░░░░░░░ 61%  encode.mp4     │  14:32:07   │  ◄── canvas
-│                                          └─────────────┤
-│  (main content area, fills remaining)                  │
-├────────────────────────────────────────────────────────┤
-│ status: connected   jobs: 3   mem: 42MB    [q] quit    │
-└────────────────────────────────────────────────────────┘
+$ myjob run                                                                     
+scanning input/                                                                 
+found 1 204 files                                                               
+┌───────────────────────────────────────────────────────────────┬──────────────┐
+│ ████████████░░░░░░░░ 61%  encode.mp4                          │   14:32:07   │
+│                                                               └──────────────┤
+│  (main content area, fills remaining)                                        │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ status: connected   jobs: 3   mem: 42MB                         [q] quit     │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -726,11 +734,11 @@ focused) is its own business and MUST NOT grow a second bus.
 - **NFR-18** A milestone is not done until `mvn verify` is green *and* the
   relevant demo has been run and visually checked by a human on a real
   terminal.
-- **NFR-19** *(new)* Because canvas mode moves the cursor inside the
-  normal screen buffer on every platform, the conhost rows of NFR-14 MUST
-  be verified for canvas mode before the keyboard milestone starts.
-  conhost's scrolling behaviour under `println`-above-region is the
-  riskiest thing in this architecture.
+- **NFR-19** *(new)* **Start-gate (not a milestone):** the conhost rows
+  of NFR-14 MUST be verified for canvas mode **before M6 starts**. This
+  is not a done-criterion of M6 and is not deferred to M7. conhost
+  scrolling under `println`-above-region is the risk; macOS rows wait
+  for M7. Same rule as architecture §9 step 7.
 
 ---
 
@@ -762,11 +770,17 @@ are listed with what survives.
 | M3 | Canvas engine: buffers, layout, blit, flush diff, canvas-above-scrollback routing, stream capture, restore paths, virtual terminal (CV-1…CV-38, CV-53…CV-63) | partially reusable from v2 M3 — see §11 |
 | M4 | Event core + event-driven widget catalogue (CV-39…CV-44, CV-65, CV-66) | not started |
 | M5 | Content-side encoding robustness (CR-29…CR-36, CR-39) | not started |
-| M6 | `KeyListener`, single-consumer forwarding, focus slot (CV-45…CV-52, CV-68, CV-69). No form widgets. | not started |
-| M7 | Platform verification rows (NFR-14, NFR-19) | 1 of 10 |
+| M6 | `KeyListener`, single-consumer forwarding, focus slot (CV-45…CV-52, CV-68, CV-69). No form widgets. Do not start until NFR-19 has passed. | not started |
+| M7 | Remaining NFR-14 platform rows (`SUPPORTED-TERMINALS.md`), including macOS. Not a substitute for the NFR-19 conhost gate. | 1 of 10 |
 
 M5 is deliberately before M6: keyboard decoding (CR-37) depends on the
 charset resolution M5 introduces.
+
+**NFR-19 start-gate (not a milestone):** the conhost rows of NFR-14 MUST
+be verified for canvas mode **before M6 starts**. This is not a
+done-criterion of M6 and is not deferred to M7. conhost scrolling under
+`println`-above-region is the risk; macOS rows wait for M7. Same rule
+as architecture §9 step 7.
 
 ---
 

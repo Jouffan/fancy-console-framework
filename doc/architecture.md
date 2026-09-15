@@ -70,8 +70,8 @@ dev.consolekit.canvas     Widget, WidgetHandle, Placement, Dock, Size, Rect,
                           Surface, Cell, Focus               [new]
 dev.consolekit.canvas.widget
                           Label, StatusBar, Clock, ProgressBar, Spinner,
-                          MultiProgress, StatusList, Graph, LogPane, Panel,
-                          SelectMenu, MultiSelectMenu, Confirm, TextInput  [new]
+                          MultiProgress, StatusList, Graph, LogPane, Panel
+                          [new]
 dev.consolekit.event      WidgetEvent (sealed) and its records,
                           EventRecorder / EventReplayer                    [new]
 dev.consolekit.input      KeyEvent, Key, Modifiers                         [new]
@@ -165,10 +165,12 @@ Per frame, on the render thread:
 
 1. **Drain** the `EventQueue` — deliver each `WidgetEvent` to its target
    widget's `onEvent`. Deliver each queued `KeyEvent` by the CV-47 rule.
-2. **Measure** — read terminal size from `TerminalPort` (never cached),
-   clamp canvas height, run `Layout` (dock in declaration order, then
-   free-placed overlays) to produce a `Rect` per widget. Negotiate any
-   widget below its `minSize` (shrink or hide).
+2. **Measure** — read terminal size from `TerminalPort` (never cached).
+   Canvas width **is** the terminal width (CV-7); there is no
+   narrower-canvas option. Clamp canvas height to the terminal height,
+   then run `Layout` (dock in declaration order, then free-placed
+   overlays) to produce a `Rect` per widget. Negotiate any widget below
+   its `minSize` (shrink or hide).
 3. **Paint** — clear the back buffer; for each widget in z-order, hand it
    a `Surface` clipped to its content area. `Surface.blit(Renderable)`
    is how the static catalogue gets onto the canvas: render to
@@ -231,27 +233,45 @@ without threads.
 
 ### 4.6 `KeyListener` **[new]**
 
-Its own daemon thread, started when raw mode is entered (CV-45) and
-stopped when it is exited. Reads bytes from `TerminalPort`, decodes them
-with the resolved *input* charset (CR-37) into `KeyEvent(Key key,
-Modifiers mods, OptionalInt codePoint)`, and offers them to the same
-render-thread queue as widget events, so a widget never sees a key and an
-event concurrently (CV-51). The decoder table is the only place escape
-sequences for keys are known; widgets get `Key.UP`, not `ESC [ A`.
+`KeyListener` **decodes**. It does **not** route, and it does **not**
+call widgets. One daemon thread, started when raw mode is entered
+(CV-45) and stopped when it is exited. It reads bytes from
+`TerminalPort`, decodes them with the resolved *input* charset (CR-37)
+into `KeyEvent(Key key, Modifiers mods, OptionalInt codePoint)`, and
+enqueues them on the same render-thread queue as widget events, so a
+widget never sees a key and an event concurrently (CV-51). The decoder
+table is the only place escape sequences for keys are known; widgets
+get `Key.UP`, not `ESC [ A`.
 
-Routing (CV-47), executed by `AsciiCanvas` during drain:
+**Routing** (CV-47) runs later, on the render thread, when
+`AsciiCanvas` drains the queue. A key is a **single-consumer**
+message: it is offered to one listener at a time until that listener
+returns handled. It is never broadcast. Exact order, no exceptions:
 
-```
-focused widget .onKey(e)  → handled? stop
-application handler       → handled? stop
-built-in: Ctrl-C cancel, Ctrl-L repaint, Tab/Shift-Tab focus cycle
-```
+1. the focused widget, if any — `onKey(e)`; stop if handled
+2. the application key handler, if any — stop if handled
+3. built-in bindings — `Ctrl-C` cancel, `Ctrl-L` full repaint (CV-49)
 
-Raw-mode lifetime: entered on the first of (a key-accepting widget is
-placed) or (an application handler is registered) while the canvas is
-live; exited in a `finally` when neither holds or the canvas goes down.
-Exiting raw mode is one of the CR-27 restore paths and needs its own
-test on every platform row.
+The first listener that returns handled consumes the event; later
+listeners MUST NOT see it. Returning not-handled (or never being
+offered the event) is how a widget ignores keys. A shipped widget MAY
+return handled for a specific key to cycle its own visualisation; that
+is the widget's `onKey`, not a built-in, and MUST NOT become a form
+(CV-68, CV-69).
+
+Built-ins are **only** `Ctrl-C` and `Ctrl-L`. `Tab` / `Shift-Tab`
+focus cycling, caret drawing, and selection chrome are out of scope
+(CV-48, CV-69); do not add them as bindings. Focus is a slot: at most
+one widget is focused; placing a key-accepting widget fills the slot
+if empty; `handle.focus()` sets it; removing the focused widget
+clears it. There is no focus navigator.
+
+Raw-mode lifetime: entered when the canvas is live **and** at least
+one of (a placed widget declares `acceptsKeys()`, an application
+handler is registered); exited in a `finally` when neither holds or
+the canvas goes down. Widgets that don't need keys don't pay for raw
+mode. Exiting raw mode is one of the CR-27 restore paths and needs
+its own test on every platform row.
 
 ### 4.7 `AnimationLoop` **[reinterpret]**
 
@@ -347,6 +367,12 @@ Windows that is the console input code page, not the output one.
 5. `EventQueue`, `WidgetEvent`, `EventRecorder/Replayer`, then the
    event-driven catalogue (M4).
 6. Content-side encoding (M5) — before keys, because CR-37 needs it.
-7. `KeyListener`, focus, interactive widgets (M6).
-8. Fill the conhost and macOS rows of `SUPPORTED-TERMINALS.md` before
-   step 7 is called done (NFR-19).
+7. **NFR-19 start-gate (not a milestone):** the conhost rows of NFR-14
+   MUST be verified for canvas mode **before M6 starts**. This is not a
+   done-criterion of M6 and is not deferred to M7. conhost scrolling
+   under `println`-above-region is the risk; macOS rows wait for M7.
+8. `KeyListener`, focus slot, single-consumer forwarding (M6). No form
+   widgets (CV-67, CV-69). Built-ins are `Ctrl-C` and `Ctrl-L` only.
+   Do not start this step until step 7 has passed.
+9. Remaining NFR-14 rows of `SUPPORTED-TERMINALS.md` (M7), including
+   macOS. Filling those rows does not relax the NFR-19 conhost gate.
