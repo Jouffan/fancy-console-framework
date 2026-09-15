@@ -150,6 +150,11 @@ and the canvas size.
 match the back buffer.
 **Glyph tier** — `FULL` / `CP437` / `ASCII`, the character repertoire the
 current terminal can actually encode.
+**Bitmap** — an immutable `w × h` grid of cells: X × Y coloured
+characters. A value, not a canvas and not an image (§7).
+**Frame** — one bitmap in a sprite's sequence, with a duration.
+**Sprite** — a canvas widget that animates a sequence of frames, advanced
+by `Tick` on the render thread.
 
 ---
 
@@ -332,11 +337,11 @@ name says `print`.
 
 - **TX-1** Colouring MUST be available as stateless static helpers
   returning a plain `String` with escapes already applied.
-- **TX-2** Text mode MUST NOT open a termiand the probe-time width from
+- **TX-2** Text mode MUST NOT open a terminal, load native code, or start
+  a thread — ever, under any code path. It MAY read the resolved
+  capabilities (colour depth, glyph tier, and the probe-time width from
   TX-15) because those come from the JDK and environment, not from JLine.
-  Discovering width via JLine is a defect the resolved
-  capabilities (colour depth, glyph tier, terminal width) because those
-  come from the JDK and environment, not from JLine.
+  Discovering width via JLine is a defect.
 - **TX-3** When the environment can't render escapes, text mode MUST
   return the string unchanged rather than emitting anything.
 - **TX-4** Text mode MUST NOT measure, wrap, pad or align caller text, so
@@ -392,13 +397,50 @@ name says `print`.
   MUST exist (`Snippets.printLine(Color)`), writing the snippet plus a
   newline to `System.out`. These are the *only* text-mode methods that
   print, and they MUST go through `System.out` exactly as the caller
-  would, never through a terminal port.resolve
+  would, never through a terminal port.
+- **TX-15** Snippets that need a width and are not given one MUST resolve
   it, in this order: the `COLUMNS` environment variable if it parses as a
   positive integer; else 80. The library MUST NOT open a terminal or call
   JLine to discover width (TX-2). Many interactive shells will hit the
   80 fallback because bash does not export `COLUMNS` to child processes;
-  that is not a defect and MUST NOT be "fixed" by reaching for JLineidth from capabilities, falling back to 80 when the
-  output is not a TTY.
+  that is not a defect and MUST NOT be "fixed" by reaching for JLine.
+
+### 4.5 Usage sketches (text mode)
+
+Illustrative. Method names that are already required (`Text.red`,
+`Styler.of`, `Snippets.line`, …) are frozen; surrounding glue is not.
+
+```java
+import static dev.consolekit.Text.red;
+import static dev.consolekit.Text.success;
+
+System.out.println(success("done") + " in " + red("12ms"));
+```
+
+```java
+Styler s = Styler.of(Theme.DEFAULT)
+        .with(Theme.Role.HIGHLIGHT, Style.fg(Color.BRIGHT_CYAN).bold());
+System.out.println("found " + s.highlight("42") + " matches");
+```
+
+```java
+System.out.println(Snippets.rule(Color.CYAN, "scan"));
+System.out.println(Snippets.ok("indexed 1 204 files"));
+System.out.println(Snippets.bar(Color.GREEN, 0.61, 40));
+Snippets.printLine(Color.RED);   // TX-14: the only text-mode print
+```
+
+Static catalogue — same `Renderable` in both modes (CR-18, CV-36):
+
+```java
+Table t = Table.of(
+        List.of("file", "size"),
+        List.of(List.of("příliš žluťoučký kůň.dat", "12K"),
+                List.of("encode.mp4", "1.1G")));
+System.out.println(t);                    // text mode, ambient context
+console.print(t);                         // canvas mode, into scrollback
+surface.blit(t);                          // canvas mode, into a Rect
+```
 
 ---
 
@@ -570,8 +612,10 @@ The event queue is the only way application state reaches the canvas.
   `ProgressUpdate(current, total, label)`, `Indeterminate(label)`,
   `Completed(finalLine)`, `GraphValues(double...)` / `GraphAppend(double)`,
   `LogMessage(StyledText)`, `SetText(String)`, `SetStatus(segment,
-  StyledText)`, `Tick(frame)`, and an opaque `Custom(payload)` for
-  user-defined widgets. Widgets MUST ignore events they don't understand.
+  StyledText)`, `Tick(frame)`, the sprite playback events of CV-78
+  (`PlaySprite`, `PauseSprite`, `SetFrame`, `SetSpriteSpeed`), and an
+  opaque `Custom(payload)` for user-defined widgets. Widgets MUST ignore
+  events they don't understand.
 - **CV-41** The event stream MUST be recordable and replayable, and MUST
   be serialisable well enough that a child process could drive a parent's
   canvas over a pipe. This is a design constraint on the event model now,
@@ -692,15 +736,16 @@ focused) is its own business and MUST NOT grow a second bus.
 ### 5.10 Widget catalogue
 
 - **CV-64** Static (`Renderable`, printable or blittable): `Table`, `Box`,
-  `KeyValueBlock`, `Tree`, `Sparkline`, `Rule`, `PatternHighlighter`.
-  *(was FC-43)*
+  `KeyValueBlock`, `Tree`, `Sparkline`, `Rule`, `PatternHighlighter`,
+  `AsciiBitmap` (CV-70). *(was FC-43)*
 - **CV-65** Canvas widgets, all event-driven: `Label`, `StatusBar` (N
   segments, independent alignment), `Clock` (self-updating on `Tick`),
   `ProgressBar` (determinate and indeterminate), `Spinner`, `MultiProgress`,
   `StatusList`, `Graph` (line/bar over a value window, fed by
   `GraphValues`/`GraphAppend`), `LogPane` (ring buffer, auto-scroll,
   attachable as log sink per CV-13), `Panel` (border and title, as a
-  container for a blitted `Renderable`). *(was FC-44, CV-32…CV-37)*
+  container for a blitted `Renderable`), `AsciiSprite` (CV-76).
+  *(was FC-44, CV-32…CV-37)*
 - **CV-66** `MultiProgress` MUST offer four policies for log lines
   attributed to a running task — drop, attributed, buffered-per-task,
   and promote — with promote as the default and buffered capped
@@ -710,6 +755,340 @@ focused) is its own business and MUST NOT grow a second bus.
   this library (CV-69). Canvas widgets from CV-65 MAY implement `onKey`
   to cycle their own visualisation; they MUST NOT become forms.
   *(was FC-48)*
+
+### 5.11 ASCII bitmaps and sprites
+
+A bitmap is the static value; a sprite is the canvas widget that
+animates a sequence of them. Both are ordinary members of the two
+catalogues above — a bitmap is a `Renderable` (CV-64) and a sprite is an
+event-driven widget (CV-65) — so nothing here introduces a second render
+path, a second event bus, or a second thread.
+
+- **CV-70** *(new)* `AsciiBitmap` MUST be an immutable `w × h` grid of
+  cells — X × Y coloured characters — each cell carrying a glyph and a
+  `Style` (CR-1, CR-40). Dimensions MUST be fixed at construction. A
+  bitmap is a value, not a mutable framebuffer; an edit produces a new
+  bitmap.
+- **CV-71** *(new)* Every bitmap cell MUST occupy exactly one display
+  column as measured by CR-6. A wide, combining or zero-width grapheme in
+  bitmap source MUST be rejected **at construction**, not at paint: the
+  grid is positional, and a two-column glyph at `(x, y)` shifts every
+  cell to its right.
+- **CV-72** *(new)* Cells MUST support per-channel transparency — glyph,
+  foreground and background independently absent — so a bitmap drawn over
+  other content leaves what is underneath instead of punching a
+  rectangular hole. Blitting a cell with an absent glyph MUST leave the
+  destination glyph untouched; likewise per colour channel.
+- **CV-73** *(new)* `AsciiBitmap` MUST be a `Renderable` (CR-16, CR-18):
+  returnable as a `String` in text mode, printable into scrollback, and
+  blittable into a Rect with clipping (CV-36). Where there is nothing
+  underneath, absent channels MUST resolve to a space and the default
+  style.
+- **CV-74** *(new)* Bitmaps MUST be **authorable** as text: a block of
+  rows plus a palette, constructible from a `String`. A palette entry
+  maps one source character to a `Style` and, optionally, to a different
+  emitted glyph — which is what lets a pattern be written as digits that
+  all paint `#`, and what keeps the source one character per cell
+  (CV-71). Rows shorter than the declared width MUST be padded with fully
+  transparent cells; rows longer MUST be an error. Text is the authoring
+  and review surface only: the **stored** form is the binary `.art` of
+  CV-81…CV-86, with `toSource()` as the inverse view (CV-89). No image
+  decoding (§7).
+- **CV-75** *(new)* Bitmap glyphs MUST pass through the same tier and
+  encoding path as every other glyph (CR-7, CR-29…CR-32). An author MAY
+  supply per-tier variants of one bitmap (`FULL` / `CP437` / `ASCII`);
+  when none is supplied the substitution policy applies, and because
+  CR-30 substitution is width-preserving the grid still lines up.
+- **CV-76** *(new)* `AsciiSprite` MUST be a canvas widget holding an
+  ordered, non-empty list of `AsciiBitmap` frames, each with a duration.
+  Frames MAY differ in size; the sprite's bounds are the maximum over its
+  frames, with each frame anchored per a declared anchor and padded with
+  fully transparent cells (CV-72).
+- **CV-77** *(new)* Sprite animation MUST be driven by `Tick` (CV-40) on
+  the render thread. A sprite MUST NOT own a thread, sleep, or read the
+  clock inside `paint`. Frame selection MUST derive from the elapsed time
+  carried by the tick, so playback speed is independent of the refresh
+  rate (CV-57) and frames are **skipped**, never queued, when the loop
+  runs slower than the frame durations.
+- **CV-78** *(new)* Playback MUST be expressible as widget events
+  (CV-39): `PlaySprite(loop)`, `PauseSprite`, `SetFrame(index)`,
+  `SetSpriteSpeed(factor)`, with the object API (`sprite.play()`,
+  `sprite.pause()`, `sprite.frame(i)`) as a thin facade over them
+  (CV-42). A sprite that is paused, or has one frame and no running
+  palette cycle (CV-88), MUST report itself not dirty (CV-37), so a still
+  sprite costs nothing per frame.
+- **CV-79** *(new)* Degradation: when not a TTY (CV-60, CV-61) a sprite
+  MUST NOT animate; its plain-line policy is to print its first frame
+  once, or nothing when configured silent. At colour depth `NONE` a
+  bitmap MUST still emit its glyphs. A piped run MUST still produce zero
+  escape bytes (CV-63).
+- **CV-80** *(new)* Bitmap and sprite output MUST be assertable without a
+  terminal and without sleeping: feeding a sequence of `Tick`s with
+  synthetic elapsed times MUST select frames deterministically, and the
+  result MUST be asserted against the NFR-3 canvas dump.
+
+**Persistence.** Art is authored as text (CV-74) but **stored as bytes**.
+The stored unit is the cell, and a cell is two bytes: one selecting the
+glyph, one selecting the style. Both tables ride in the file, so a frame
+is a flat `2 × w × h` block with no parsing, no escapes and no ambiguity
+about where row `y` starts. This is the VGA text-mode / `XBin` shape and
+it is chosen for the same reason: the data is a grid of `(char, colour)`
+pairs, and any format that is not a grid of `(char, colour)` pairs has to
+re-derive one at load.
+
+- **CV-81** *(new)* There MUST be exactly one persistence format, and it
+  MUST cover both: a bitmap is a one-frame animation. One reader, one
+  writer, one extension (`.art`). A separate "sprite format" is a defect.
+- **CV-82** *(new)* An `.art` file MUST be binary, MUST be readable in a
+  single forward pass with no seeking (so it streams from a jar entry or
+  a pipe, CV-41), MUST NOT be compressed (jar and transport layers
+  already do that), and MUST use fixed-width big-endian integers. The
+  writer MUST be deterministic: equal values produce byte-identical
+  files, which is what makes goldens possible. Layout:
+
+  ```
+  magic    "CKART"  u8[5]
+  version  u8 major, u8 minor          major bump = refuse to load
+  header   u16 width, u16 height, u16 frames,
+           u8 anchor, u32 defaultDurationMillis,
+           u8 cycleCount, then per cycle:
+               u8 length, u8[length] styleSlots, u32 periodMillis
+  glyphs   u8 count, then per entry:
+               u32 codePoint (FULL), u32 cp437Alt, u32 asciiAlt
+  styles   u8 count, then per entry:
+               u8 flags (fg kind, bg kind, attrs present),
+               fg spec, bg spec, u8 attrBits
+  frames   per frame: u32 durationMillis (0 = use default),
+               then width*height cells, row-major, each:
+               u8 glyphSlot, u8 styleSlot
+  ```
+
+- **CV-83** *(new)* A cell MUST be exactly two bytes — glyph slot, style
+  slot — with slot `0` in **both** tables meaning transparent. That
+  leaves up to **255 glyphs and 255 styles per file** and makes CV-72
+  transparency part of the encoding rather than a flag bolted onto it.
+  Frames MUST be row-major with no padding, so frame `i` starts at a
+  computable offset and a 10 × 10 frame is exactly 200 bytes.
+- **CV-84** *(new)* The glyph table MUST store Unicode code points, not
+  bytes, with the `CP437` and `ASCII` alternates of CV-75 in the same
+  entry. The indirection exists to make CV-71 cheap and total: single-
+  column validation runs once per table entry at load — at most 255
+  checks — instead of `w × h` per frame, and a file whose table is valid
+  cannot contain a mis-measured cell. Tier alternates MUST change glyphs
+  only, never geometry.
+- **CV-85** *(new)* The style table MUST store full `Style` values in the
+  CR-1 / CR-40 model: foreground and background each absent, named,
+  `index:n` or 24-bit rgb, plus the attribute flags. A style byte is an
+  **index into that table**, not a packed VGA attribute — the format MUST
+  NOT be limited to 16 colours, and per-channel absence (CV-72) MUST be
+  expressible in an entry.
+- **CV-86** *(new)* Reading MUST accept a classpath resource, a `Path`
+  and an `InputStream`, so a jar can ship an art set and a child process
+  can stream one. Every limit MUST be enforced **before** allocating:
+  documented caps on width, height, frame count and total file size; a
+  declared size that exceeds them, a truncated frame, a slot outside its
+  table, a bad magic or a newer major version MUST throw with the byte
+  offset. There are no external references, no includes and nothing
+  executable in the format. `.art` files MAY be user-supplied, so a
+  hostile one MUST fail fast rather than allocate what its header claims.
+- **CV-89** *(new)* Because the stored form is not reviewable, the text
+  form MUST stay first-class as its **view**: `toSource()` MUST render
+  any bitmap or sprite as the CV-74 rows-plus-palette text, and
+  `parse(text) → write → read` MUST produce an equal value. The text form
+  is a projection of the value, never a second on-disk format, and
+  `Probe` MUST be able to dump an `.art` file to it so a broken file can
+  be read without a hex editor.
+
+**Filled grids and colour cycling.** The worked case is a 10 × 10 field
+of `#` with colour stripes travelling diagonally. Spelling that as ten
+hand-written frames of a hundred cells would be a failure of the format,
+not a use of it. Two mechanisms keep it one-liner-sized, and neither is
+specific to stripes.
+
+- **CV-87** *(new)* `AsciiBitmap` MUST be constructible from a function
+  of position: `generate(w, h, (x, y) -> Cell)`. The function MUST be
+  evaluated exactly once per cell **at construction** and MUST NOT be
+  retained, so the result stays an immutable value (CV-70) and paint
+  stays a pure blit (CV-77). A per-paint cell callback is the thing this
+  requirement exists to prevent.
+- **CV-88** *(new)* A sprite MUST support **palette cycling**: an
+  ordered group of style slots (CV-85) rotated by one position every
+  declared period, so an N-colour pattern animates from **one** frame
+  instead of N frames. Groups and periods are part of the file header
+  (CV-82). Cycling MUST be driven by the same `Tick` elapsed-time
+  accumulator as frame advance (CV-77), with its own period, and MUST be
+  settable as an event (`SetCycleOffset(int)`) with `sprite.cycle(n)` as
+  its facade (CV-42). Because a cell stores a *slot* and the slot carries
+  the style (CV-83), the grid is written once and only the colours move.
+  A sprite with an active cycle is dirty on each rotation and only then
+  (CV-37, CV-78).
+  A sprite with an active cycle is dirty on each rotation and only then
+  (CV-37, CV-78).
+
+### 5.12 Usage sketches (canvas mode)
+
+Illustrative of CV-10, CV-13, CV-24, CV-38, CV-40, CV-42, CV-47, CV-65,
+CV-70, CV-78. `place` / docking / `println` ship in M3; `send` and the
+object-API facade ship in M4. Surrounding glue is not an API freeze.
+
+The §1.2 picture — progress docked top-left, clock top-right, status
+bottom, last widget fills remaining, log lines above the canvas:
+
+```java
+try (FancyConsole console = new FancyConsole()) {
+    WidgetHandle bar = console.place(new ProgressBar(), Dock.TOP);
+    WidgetHandle clock = console.place(new Clock(), Dock.RIGHT);
+    WidgetHandle status = console.place(new StatusBar(4), Dock.BOTTOM);
+    WidgetHandle body = console.place(new Panel("main"), Dock.FILL);
+
+    console.println("scanning input/");
+    console.println("found 1 204 files");
+
+    bar.send(new ProgressUpdate(bar.id(), 61, 100, "encode.mp4"));
+    status.send(new SetStatus(status.id(), 0, StyledText.of("connected")));
+    // Clock paints itself from Tick; the application does not drive it.
+}
+```
+
+Object API is the same events (CV-42):
+
+```java
+bar.step();                                 // ProgressUpdate
+bar.indeterminate("waiting");               // Indeterminate
+bar.complete("done");                       // Completed
+log.append(StyledText.of("hello"));         // LogMessage
+graph.append(0.42);                         // GraphAppend
+label.setText("ready");                     // SetText
+```
+
+`logTo` is additional, never instead-of (CV-13):
+
+```java
+LogPane log = new LogPane();
+console.place(log, Dock.FILL);
+console.logTo(log);
+console.println("still on the stream, and in the pane");
+console.logTo(null);                        // extra delivery off; stream stays
+```
+
+Free placement overlays the docked layout; it does not consume space
+(CV-25):
+
+```java
+console.place(new Label("toast"), Rect.of(2, 1, 24, 3));
+```
+
+`Graph` may consume a key to cycle its own visualisation (CV-68). That
+is `onKey`, not a form (CV-69):
+
+```java
+Graph graph = new Graph();                  // onKey('g') → line/bar, handled
+console.place(graph, Dock.FILL);
+graph.send(new GraphValues(graph.id(), 0.1, 0.4, 0.3, 0.8));
+console.onKey(e -> {
+    if (e.key() == Key.Q) { console.close(); return true; }
+    return false;                           // unhandled → built-ins
+});
+```
+
+`Panel` blits a static `Renderable` into its content area (CV-36):
+
+```java
+Panel panel = new Panel("files");
+console.place(panel, Dock.FILL);
+panel.blit(Table.of(headers, rows));
+```
+
+An `AsciiBitmap` is X × Y coloured characters authored as text plus a
+palette (CV-70, CV-74); an `AsciiSprite` animates a list of them from
+`Tick` (CV-76, CV-77):
+
+```java
+AsciiBitmap logo = AsciiBitmap.parse("""
+        .###.
+        #.o.#
+        .###.
+        """,
+        Palette.of('#', Style.fg(Color.BRIGHT_CYAN),
+                   'o', Style.fg(Color.RED).bold(),
+                   '.', Palette.TRANSPARENT));
+
+console.println(logo.toString());           // text mode / scrollback
+panel.blit(logo);                           // or blitted into a Rect
+
+AsciiSprite spinner = AsciiSprite.of(Duration.ofMillis(120), f0, f1, f2, f3);
+console.place(spinner, Rect.of(2, 1, 5, 3));
+spinner.play();                             // PlaySprite(loop = true)
+spinner.pause();                            // PauseSprite → not dirty
+```
+
+Authored as text, stored as bytes: the same `.art` file loads as a bitmap
+or as a sprite, from a jar or from disk, and round-trips (CV-81…CV-86,
+CV-89):
+
+```java
+AsciiBitmap.write(Path.of("art/logo.art"), logo);   // 2 bytes per cell + tables
+AsciiBitmap logo2    = AsciiBitmap.load("/art/logo.art");        // classpath
+AsciiSprite spinner2 = AsciiSprite.load(Path.of("art/spinner.art"));
+System.out.println(logo2.toSource());               // text view of the bytes
+```
+
+A 10 × 10 field of `#` with colour stripes travelling diagonally is **one
+frame** plus one cycle group (CV-74, CV-88): the digits are palette
+characters that all emit `#`, and rotating the group of style slots moves
+the stripes. Stored, that is 200 cell bytes plus a 1-entry glyph table
+and a 4-entry style table — not ten frames:
+
+```java
+Palette stripes = Palette.builder()
+        .entry('1', '#', Style.fg(Color.RED))
+        .entry('2', '#', Style.fg(Color.YELLOW))
+        .entry('3', '#', Style.fg(Color.GREEN))
+        .entry('4', '#', Style.fg(Color.CYAN))
+        .cycle(Duration.ofMillis(80), '1', '2', '3', '4')
+        .build();
+
+AsciiSprite band = AsciiSprite.of(AsciiBitmap.parse("""
+        1234123412
+        2341234123
+        3412341234
+        4123412341
+        1234123412
+        2341234123
+        3412341234
+        4123412341
+        1234123412
+        2341234123
+        """, stripes));
+
+console.place(band, Rect.of(4, 2, 10, 10));
+band.play();
+AsciiSprite.write(Path.of("art/stripes.art"), band);
+```
+
+The same field built in code is `generate` plus a cell function (CV-87);
+no grid is typed out by hand either way:
+
+```java
+Style[] ramp = { Style.fg(Color.RED),   Style.fg(Color.YELLOW),
+                 Style.fg(Color.GREEN), Style.fg(Color.CYAN) };
+
+AsciiBitmap field = AsciiBitmap.generate(10, 10,
+        (x, y) -> Cell.of('#', ramp[(x + y) % ramp.length]));
+```
+
+`MultiProgress` (CV-66), promote default:
+
+```java
+MultiProgress mp = new MultiProgress();
+console.place(mp, Dock.TOP);
+WidgetHandle encode = mp.task("encode.mp4");
+encode.send(new ProgressUpdate(encode.id(), 61, 100, "encode.mp4"));
+mp.onTaskLog(encode.id(), "frame 1200");    // promote policy: line goes up
+```
+
+Application keys after the focused widget declines (CV-47). Built-ins
+are only `Ctrl-C` and `Ctrl-L`. No Tab-cycle.
 
 ---
 
@@ -781,7 +1160,12 @@ focused) is its own business and MUST NOT grow a second bus.
 ## 7. Out of scope
 
 - Mouse support.
-- Image or sixel rendering.
+- Image or sixel rendering, and decoding an image file into characters.
+  An `AsciiBitmap` is a grid of characters an author writes, not a
+  picture the library converts (CV-70, CV-74).
+- Sprite collision detection, scene graphs, tweening and game loops. A
+  sprite is a widget that advances frames on `Tick` (CV-77); moving it
+  is free placement (CV-25).
 - Command-line argument or option parsing.
 - Constraint-solver or flexbox-style content-reflowing layout.
 - The alternate screen buffer (§9).
@@ -805,6 +1189,7 @@ are listed with what survives.
 | M2 | Static `Renderable` catalogue | done (v2 M2) |
 | M3 | Canvas engine: buffers, layout, blit, flush diff, canvas-above-scrollback routing, stream capture, restore paths, virtual terminal, `place`/`update`/`focus`/`remove` (CV-1…CV-38 except `handle.send`, CV-53…CV-63). CV-9 and CV-13 are new in this range. | partially reusable from v2 M3 — see §11 |
 | M4 | Event core (`WidgetId`, `WidgetEvent`, `handle.send`) + event-driven widget catalogue (CV-38 `send`, CV-39…CV-44, CV-65, CV-66) | not started |
+| M4b | `AsciiBitmap` + `AsciiSprite` (CV-70…CV-89). Needs M4's `Tick` and event queue; the bitmap half (CV-70…CV-75, CV-87) and the `.art` codec (CV-81…CV-86, CV-89) only need M3. | not started |
 | M5 | Content-side encoding robustness (CR-29…CR-36, CR-39) | not started |
 | M6 | `KeyListener`, single-consumer forwarding, focus slot (CV-45…CV-52, CV-68, CV-69). No form widgets. Do not start until NFR-19 has passed. | not started |
 | M7 | Remaining NFR-14 platform rows (`SUPPORTED-TERMINALS.md`), including macOS. Not a substitute for the NFR-19 conhost gate. | 1 of 10 |
@@ -898,6 +1283,7 @@ Still open:
 | Rendering | CV-53 … CV-59 | strip-based version implemented; cell diff not started |
 | Degradation | CV-60 … CV-63 | implemented |
 | Widget catalogue | CV-64 … CV-67 | static done; canvas widgets not started; forms retired (CV-67, CV-69) |
+| Bitmaps and sprites | CV-70 … CV-89 | **not started** |
 | Platform verification | NFR-14 … NFR-19 | 1 of 10 rows |
 
 ---
@@ -926,6 +1312,7 @@ Still open:
 | FC-38 … FC-42 | CV-60 … CV-63 | degradation; CV-62 retired as a prompt rule |
 | FC-43 … FC-47 | CV-64 … CV-66 | catalogue |
 | FC-48 | CV-67 retired | form widgets out of scope (CV-69) |
+| — | CV-70 … CV-89 | new: `AsciiBitmap`, `AsciiSprite`, binary `.art` format, palette cycling |
 | CV-1 | CV-6, CV-7 | height resolution changed |
 | CV-2 | CV-6 | alternate screen dropped |
 | CV-3 … CV-6 | CV-8, CV-27, CV-27, CV-23 | |

@@ -66,11 +66,13 @@ dev.consolekit.core       Color, Style, Attr, Capabilities, GlyphTier,
 dev.consolekit.render     Renderable                   (the static contract)
 dev.consolekit.widget     Table, Box, KeyValueBlock, Tree, Sparkline,
                           Rule, PatternHighlighter, Border   (static catalogue)
+                          AsciiBitmap, Palette               [new]
 dev.consolekit.canvas     Widget, WidgetHandle, Placement, Dock, Size, Rect,
                           Surface, Cell, Focus               [new]
 dev.consolekit.canvas.widget
                           Label, StatusBar, Clock, ProgressBar, Spinner,
-                          MultiProgress, StatusList, Graph, LogPane, Panel
+                          MultiProgress, StatusList, Graph, LogPane, Panel,
+                          AsciiSprite
                           [new]
 dev.consolekit.event      WidgetEvent (sealed) and its records,
                           EventRecorder / EventReplayer                    [new]
@@ -78,7 +80,7 @@ dev.consolekit.input      KeyEvent, Key, Modifiers                         [new]
 dev.consolekit.internal   NOT exported. Ansi, Glyphs, TextWidth, TerminalPort,
                           LiveRegion, ScrollbackWriter, StreamCapture,
                           AnimationLoop, EventQueue, KeyListener, CanvasBuffer,
-                          Layout, Blitter, VirtualTerminal (test support)
+                          Layout, Blitter, ArtFormat, ArtText, VirtualTerminal (test support)
 ```
 
 `dev.consolekit.render.AsciiWidget`, `PinHandle`, `PinContext` and
@@ -228,7 +230,9 @@ newest), then drop oldest. `LogMessage` is never coalesced. NFR-5 does
 not apply to this queue: records MAY allocate; the no-alloc rule is
 layout/paint/diff/flush onlyaled interface WidgetEvent permits
     ProgressUpdate, Indeterminate, Completed, GraphValues, GraphAppend,
-    LogMessage, SetText, SetStatus, Tick, Custom { WidgetId target(); }
+    LogMessage, SetText, SetStatus, Tick,
+    PlaySprite, PauseSprite, SetFrame, SetSpriteSpeed,
+    Custom { WidgetId target(); }
 ```
 
 All records, all immutable, all `Serializable`-shaped (CV-41: a child
@@ -314,6 +318,64 @@ public interface Widget {
 `Surface` is clipped to the content area (border and padding are drawn by
 the framework from the `Placement`, not by the widget). Widgets never see
 the canvas, the terminal, the cursor, or other widgets.
+
+### 4.9 `AsciiBitmap` and `AsciiSprite` **[new]**
+
+`AsciiBitmap` is a static `Renderable` in `dev.consolekit.widget`: an
+immutable `w × h` array of cells, X × Y coloured characters (CV-70). It
+is a value with no lifecycle, so it belongs next to `Table`, not in
+`canvas`. Cells are the same `Cell` shape the back buffer uses, with
+each channel — glyph, fg, bg — optionally absent (CV-72); `Surface.blit`
+skips absent channels, which is the only new thing the blitter learns.
+Width is validated once at construction through `internal.TextWidth`
+(CV-71) so no paint-time check is needed, and glyphs go through the
+existing `Glyphs`/substitution path (CV-75) rather than a bitmap-specific
+one. `Palette` is the char → `Style` map used by `AsciiBitmap.parse`
+(CV-74); the parse format is text only, and there is no image decoder
+(requirements §7).
+
+`AsciiSprite` is a `canvas.widget` implementing the §4.8 contract. It
+holds the frame list, the anchor, the play/pause state and an elapsed-time
+accumulator. All motion happens in `onEvent(Tick)`: the accumulator
+advances by the tick's elapsed time, the frame index is recomputed
+(skipping frames when the loop is behind, CV-77), and `isDirty` becomes
+true only when the index actually changed — a paused sprite is free
+(CV-78). `paint` blits the current frame and reads no clock. Because the
+frame index is a pure function of accumulated time, `EventReplayer` with
+synthetic tick timings plus the NFR-3 dump is the whole test strategy
+(CV-80); no test sleeps.
+
+A sprite has a **second** accumulator for palette cycling (CV-88) with
+its own period: a rotation offset into a declared group of palette slots,
+applied when the frame's cells are resolved to styles at blit time. It
+is the same pure-function-of-accumulated-time shape as the frame index,
+so it inherits the same skipping and the same test strategy, and it is
+why an N-colour moving pattern is one frame rather than N. Cells store
+the slot, not the resolved `Style`, for exactly this reason; a bitmap
+built by `generate` (CV-87) with literal styles simply has a one-entry
+group and never rotates.
+
+**Persistence** is `internal.ArtFormat`: one reader and one writer for
+the binary `.art` format (CV-81…CV-86), reached only through
+`AsciiBitmap.load/write` and `AsciiSprite.load/write`. A bitmap is
+stored as a one-frame animation, so there is no second code path. The
+stored unit is the cell and a cell is two bytes — a glyph-table slot and
+a style-table slot, both `0` meaning transparent (CV-83) — so a frame is
+a flat `2 × w × h` block that loads into `Cell[]` with no parsing. The
+indirection is what makes validation cheap and total: CR-6 single-column
+checks (CV-71) and `Glyphs` tier resolution (CV-75) run once per glyph
+table entry, at most 255 times, not once per cell. The reader is a
+single forward pass over a bounded `DataInputStream` that checks every
+declared count against its cap **before** allocating, and throws with the
+byte offset — load is not a render path, so CR-24's "never throw" does
+not apply here and must not be applied by reflex. The writer is
+deterministic so goldens can be byte-compared.
+
+The text form lives beside it, not under it: `ArtText` parses the
+rows-plus-palette authoring syntax (CV-74) and renders `toSource()`
+(CV-89), which is how a binary file gets reviewed, diffed and dumped by
+`Probe`. It produces and consumes the same value object; it never
+produces a file.
 
 ## 5. Concurrency model (NFR-7)
 
