@@ -119,11 +119,14 @@ One tick body, four steps, all on the render thread:
    that axis (CV-26). Negotiate any widget below its `minSize` (shrink or
    hide).
 3. **Paint** — clear the back buffer; for each widget in z-order, hand it
-   a `Surface` clipped to its content area. `Surface.blit(Renderable)`
-   is how anything static gets onto the canvas: render to
-   `List<StyledText>` at the content width, then write each line's spans
-   into cells, applying CR-29/30 substitution *before* cell writes so
-   the measured width is the emitted width.
+   a `Surface` clipped to its content area. Two writes:
+   - `Surface.blit(Renderable)` (CV-36) — catalogue / `Panel`: render to
+     `List<StyledText>` at the content width, then write each line's
+     spans into cells. Absent channels become space + default style.
+     Apply CR-29/30 substitution *before* cell writes so the measured
+     width is the emitted width.
+   - `Surface` composite of core `Cell[]` (CV-94) — overlays /
+     `AsciiSprite`: per-channel absence leaves what is underneath.
 4. **Flush** — `LiveRegion.flush(front, back)`.
 
 The canvas is dumpable to a plain `String` grid (NFR-3); every layout
@@ -248,17 +251,18 @@ the canvas, the terminal, the cursor, or other widgets.
 
 The canvas half of the bitmap part, and deliberately thin: an
 `AsciiAnimation` (BM-8), an elapsed-time accumulator, and play/pause
-state. `onEvent(Tick)` advances the accumulator by the tick's elapsed
-time; `frameAt` and `cycleOffsetAt` (BM-9, BM-10) do the arithmetic;
-`isDirty` is true only when the selected frame or the cycle offset
-actually changed (CV-92). `paint` blits the frame through
-`Surface.blit(Renderable)` — the same call `Panel` makes for a `Table` —
-and reads no clock.
+state. Construct with `new AsciiSprite(animation)` after `Art.load`;
+there is no `AsciiSprite.load`. `onEvent(Tick)` advances the accumulator
+by the tick's elapsed time; `cellsAt(elapsed)` (BM-13) does the
+arithmetic; `isDirty` is true only when the selected frame or the cycle
+offset actually changed (CV-92). `paint` composites the `Cell[]` through
+CV-94 — **not** `Surface.blit(Renderable)`, which would drop per-channel
+absence. It reads no clock.
 
 Everything that could be a pure function is one, in the other part. What
-is left here is the clock, which is why this class is a dozen lines and
-why `EventReplayer` with synthetic tick timings plus the NFR-3 dump is
-the whole test strategy (CV-93). No test sleeps.
+is left here is the clock plus the composite. `EventReplayer` with
+synthetic tick timings plus the NFR-3 dump is the whole test strategy
+(CV-93). No test sleeps.
 
 ## 11. Concurrency (NFR-7)
 

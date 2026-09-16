@@ -5,13 +5,15 @@ Normative specification of the stored form for
 file format is a compatibility surface with a longer life than the code
 that reads it.
 
-**The stored unit is the cell, and a cell is two bytes: one selecting the
-glyph, one selecting the style.** Both tables ride in the file, so a
-frame is a flat `2 × w × h` block with no parsing, no escapes and no
-ambiguity about where row `y` starts. This is the VGA text-mode / `XBin`
-shape, chosen for the same reason: the data *is* a grid of
-`(char, colour)` pairs, and a format that is not a grid of
-`(char, colour)` pairs has to re-derive one at load.
+**The stored unit is two bytes: one glyph slot, one style slot (AF-3).**
+Both tables ride in the file, so a frame is a flat `2 × w × h` block with
+no parsing, no escapes and no ambiguity about where row `y` starts. Slot
+`0` in both tables is transparent. After load, `cellsAt` / print resolve
+slots to core `Cell`s (CR-41); the file itself is not a grid of those
+objects. This is the VGA text-mode / `XBin` shape: the data *is* a grid
+of `(char, colour)` pairs, and a format that is not a grid of
+`(char, colour)` pairs has to re-derive one at load. Persistence I/O is
+`Art.load` / `Art.write` only.
 
 `MUST` / `SHOULD` / `MAY` are RFC 2119. IDs `AF-1…AF-8` replace
 `CV-81…CV-86` and `CV-89` from v3.

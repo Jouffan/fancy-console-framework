@@ -4,21 +4,22 @@ Part 3 of 4. Depends on [core](../core/requirements.md) only. The file
 format is specified separately in [art-format.md](art-format.md) (`AF`).
 See [the map](../requirements.md).
 
-**X × Y coloured characters, as a value.** A bitmap is a grid of cells;
-an animation is an ordered list of bitmaps with durations. Nothing in
-this part owns a terminal, a thread or a clock, and nothing in it knows
-whether the result will be printed to `System.out` or painted on a
-canvas — that is the point of CR-42.
+**X × Y coloured characters, as a value.** A bitmap is a grid of slots
+that resolve to core `Cell`s; an animation is an ordered list of bitmaps
+with durations. Nothing in this part owns a terminal, a thread or a
+clock. Print is `Renderable` (CR-42); overlay paint is `cellsAt` →
+`Cell[]` (BM-13). This part does not know which consumer will call which.
 
-`MUST` / `SHOULD` / `MAY` are RFC 2119. IDs `BM-1…BM-12` replace
+`MUST` / `SHOULD` / `MAY` are RFC 2119. IDs `BM-1…BM-13` replace
 `CV-70…CV-89` from v3; the map has the table.
 
 ---
 
 ## 1. Terminology
 
-**Bitmap** — an immutable `w × h` grid of core `Cell`s (CR-41). A value,
-not a canvas and not an image (§5).
+**Bitmap** — an immutable `w × h` grid of glyph-slot + style-slot pairs
+plus the two tables they index (AF-3). Resolves to core `Cell`s (CR-41).
+A value, not a canvas and not an image (§5).
 **Frame** — one bitmap in an animation, with a duration.
 **Animation** — an ordered, non-empty list of frames plus an anchor and
 any cycle groups. A bitmap is a one-frame animation.
@@ -31,10 +32,12 @@ and an emitted glyph.
 
 ## 2. The bitmap value
 
-- **BM-1** `AsciiBitmap` MUST be an immutable `w × h` grid of core cells
-  — X × Y coloured characters — each carrying a glyph and a `Style`
-  (CR-1, CR-41). Dimensions MUST be fixed at construction. A bitmap is a
-  value, not a mutable framebuffer; an edit produces a new bitmap.
+- **BM-1** `AsciiBitmap` MUST be an immutable `w × h` grid of glyph-slot
+  + style-slot pairs plus the glyph and style tables they index (AF-3) —
+  X × Y coloured characters. Dimensions MUST be fixed at construction.
+  A bitmap is a value, not a mutable framebuffer; an edit produces a new
+  bitmap. After `cellsAt` / `frameAt` resolution, each position is a
+  core `Cell` (CR-41).
 - **BM-2** Every cell MUST occupy exactly one display column as measured
   by CR-6. A wide, combining or zero-width grapheme MUST be rejected **at
   construction**, not at paint: the grid is positional, and a two-column
@@ -44,14 +47,14 @@ and an emitted glyph.
   drawn over other content leaves what is underneath instead of punching
   a rectangular hole. Compositing a cell with an absent glyph MUST leave
   the destination glyph untouched; likewise per colour channel.
-- **BM-4** `AsciiBitmap` MUST be a `Renderable` (CR-16, CR-42), and that
-  MUST be its *only* output contract. It therefore prints to an ordinary
+- **BM-4** `AsciiBitmap` MUST be a `Renderable` (CR-16, CR-42). That is
+  its **print** contract, not its only output: it prints to an ordinary
   console as a `String` with escapes applied exactly like text-mode
-  output (CR-44), prints into scrollback (CV-10), and blits into a canvas
-  Rect (CV-36) — with no code in this part that is aware of any of the
-  three. Where there is nothing underneath, absent channels MUST resolve
-  to a space and the default style. A second, consumer-specific output
-  method is a defect.
+  output (CR-44), and prints into scrollback, with no code in this part
+  that is aware of either. Where there is nothing underneath, the print
+  door MUST resolve absent channels to a space and the default style.
+  Overlay paint is BM-13, not this contract. A `print()` or
+  `paint(Surface)` method on the bitmap itself is a defect.
 - **BM-5** Bitmaps MUST be **authorable** as text: a block of rows plus a
   palette, constructible from a `String`. A palette entry maps one source
   character to a `Style` and, optionally, to a different emitted glyph —
@@ -108,13 +111,19 @@ clock is the canvas widget (CV-90), and it lives in the other part.
   (CR-43). It has no `Widget`, no `Tick`, no `Surface`, no `println`. A
   requirement that cannot be satisfied without one of those belongs in
   the canvas part.
+- **BM-13** `AsciiAnimation` MUST expose `cellsAt(Duration elapsed)`
+  returning a grid of core `Cell`s: slots resolved through the current
+  frame and cycle offset, with per-channel absence intact (BM-3). It
+  MUST be a pure function of elapsed time, the same shape as BM-9 /
+  BM-10. It MUST NOT import canvas. Whether it may allocate, or must
+  fill a caller-supplied buffer, is decided at M4b (open question 6).
+  A still bitmap is the one-frame case of the same call.
 
 ---
 
 ## 4. Usage sketches
 
-Authoring, printing and blitting — the same value through the one
-contract (BM-4):
+Authoring and the print door (BM-4, BM-5). Persistence is `Art` only:
 
 ```java
 AsciiBitmap logo = AsciiBitmap.parse("""
@@ -126,9 +135,9 @@ AsciiBitmap logo = AsciiBitmap.parse("""
                    'o', Style.fg(Color.RED).bold(),
                    '.', Palette.TRANSPARENT));
 
-System.out.println(logo);        // ordinary console, like text mode (CR-44)
-console.print(logo);             // canvas: into scrollback (CV-10)
-surface.blit(logo);              // canvas: into a Rect (CV-36)
+System.out.println(logo);        // print door: ordinary console (CR-44)
+console.print(logo);             // print door: into scrollback
+Art.write(Path.of("art/logo.art"), AsciiAnimation.of(logo));
 ```
 
 Generated rather than typed (BM-7):

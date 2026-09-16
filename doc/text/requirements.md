@@ -125,7 +125,7 @@ Table t = Table.of(
                 List.of("encode.mp4", "1.1G")));
 System.out.println(t);                    // ambient context
 console.print(t);                         // canvas: into scrollback
-surface.blit(t);                          // canvas: into a Rect
+surface.blit(t);                          // canvas: catalogue blit (CV-36)
 
 System.out.println(logo);                 // an AsciiBitmap, same path (BM-4)
 ```

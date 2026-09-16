@@ -3,8 +3,10 @@
 Part 1 of 4. Requirements: [core/requirements.md](requirements.md).
 See [the map](../architecture.md).
 
-Core is a library of **values and one output path**. It has no threads,
-no terminal, no lifecycle and no knowledge of the other parts (CR-43).
+Core is a library of **values and one print path**. It has no threads,
+no terminal, no lifecycle and MUST NOT depend on the other parts
+(CR-43). It is written for them; §4 of the requirements is allowed
+knowledge of what they need.
 
 ## 1. Packages
 
@@ -20,10 +22,11 @@ dev.consolekit.internal   NOT exported. Ansi, Glyphs, TextWidth, Encoding,
                           TerminalPort
 ```
 
-`Cell` lives here, not in `canvas` (CR-41): the canvas back buffer and an
-`AsciiBitmap` are the same grid of the same type, and absence means the
-same thing in both. Putting it in either consumer would force the other
-to convert.
+`Cell` lives here, not in `canvas` (CR-41): absence means the same thing
+everywhere (leave what is underneath). A stored bitmap is slots that
+resolve to cells; a canvas back buffer is cells. Putting `Cell` in either
+consumer would force the other to convert. Overlay paint is a composite
+of these cells, not a memcpy of the stored grid.
 
 ## 2. The types
 
@@ -35,12 +38,13 @@ independently absent; absence composites as "leave what is underneath".
 
 `StyledText` is a line as `(text, style)` spans. `Renderable` is a pure
 function `RenderContext -> List<StyledText>` (CR-16). Together they are
-the *only* interchange between parts (CR-42): implement `Renderable` and
-every consumer in the library can already print or blit you.
+the **print** interchange (CR-42): implement `Renderable` and every print
+consumer can already use you. Overlay paint composites core `Cell`s; that
+is not a third part-to-part type.
 
-`RenderContext` carries capabilities, theme and available width — and, in
-canvas mode, the per-frame canvas size (CR-17). Nothing reads
-`Capabilities.size()` for layout.
+`RenderContext` carries capabilities, theme and available width, plus an
+optional size the caller fills when it has a current viewport (CR-17).
+Nothing reads `Capabilities.size()` for layout.
 
 ## 3. The output path (CR-44)
 
@@ -49,18 +53,18 @@ Renderable ──► List<StyledText> ──► internal.Ansi ──► String /
                                      (the only escape emitter, CR-21)
 ```
 
-This path belongs to core, not to the text part. `Text`/`Styler`/
-`Snippets` are a facade over it (TX-1), and an `AsciiBitmap` uses the
-same path to print to `System.out` (BM-4) without importing the text
-part. Capability gating happens once, here: when escapes can't be
-rendered the spans are concatenated unchanged (TX-3).
+This path belongs to core, not to the text part. Facades (`Text` /
+`Styler` / `Snippets`) and any `Renderable` (including a bitmap) use it
+to print to `System.out` without owning a second emitter. Capability
+gating happens once, here: when escapes can't be rendered the spans are
+concatenated unchanged.
 
 `internal.Ansi` is the only class containing escape bytes, `Glyphs` the
 only class containing non-ASCII literals, `TerminalPort` the only class
 touching JLine (CR-21…CR-23). Source-scan tests enforce all three, plus
 the CR-43 package layering (NFR-10).
 
-## 4. Encoding (CR-28…CR-39)
+## 4. Encoding (CR-28…CR-38)
 
 `Encoding.forOutput(caps)` resolves the charset once, then
 `substitute(text)` does NFC normalise → encodable check →

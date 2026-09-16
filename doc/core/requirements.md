@@ -13,9 +13,10 @@ It renders nothing on its own and owns no terminal state machine.
 | [bitmap](../bitmap/requirements.md) | core | `BM`, `AF` |
 | [canvas](../canvas/requirements.md) | core, bitmap | `CV` |
 
-Core MUST NOT know that the other three exist. What it owes them is
-fixed by CR-41…CR-44 and by §4; everything else in this document is
-written without reference to a consumer.
+This document is written **for** those three consumers. Core MUST NOT
+*depend* on them (CR-43): no import, no package reference, no compile-time
+edge. §4 is allowed knowledge of what they need. Consumer IDs MUST NOT
+appear in a core MUST as if they were core requirements.
 
 `MUST` / `SHOULD` / `MAY` are RFC 2119.
 
@@ -130,16 +131,15 @@ mis-measured string shifts every cell to its right.
   and continue, per CR-24.
 - **CR-37** Keyboard input MUST be decoded using the resolved input
   charset, so a key such as a letter with a diacritic is one key event on
-  a non-UTF-8 console. *(gates CV-46)*
+  a non-UTF-8 console.
 - **CR-38** `Probe` MUST report the resolved output charset, the raw
   `stdout.encoding` / `native.encoding` / `Console.charset()` values it was
   derived from, and on Windows the active code page — since when these
   disagree, that disagreement is the bug.
-- **CR-39** The CR-10 fixture strings MUST be rendered inside a bordered
-  `Table` on a non-UTF-8 console in the test suite, **both** as an
-  immediate print and blitted into a canvas Rect, and the result asserted
-  at the byte level through the NFR-3 virtual terminal. "It looked fine"
-  is not a passing condition for this requirement.
+- **CR-39** *(moved)* The CR-10 fixture on a non-UTF-8 console, printed
+  and blitted, asserted through the virtual terminal, lives in the canvas
+  part. Core keeps the fixture string (CR-10) and the encoding rules; it
+  does not own a canvas.
 
 ### 2.4 Capability detection
 
@@ -149,7 +149,7 @@ mis-measured string shifts every cell to its right.
   `WT_SESSION`, `COLORTERM`.
 - **CR-12** Capabilities MUST carry colour depth, glyph tier, TTY-ness,
   supported attributes, a **probe-time** terminal size (diagnostic only
-  — MUST NOT be used for layout; see CR-17, CV-27), output and input
+  — MUST NOT be used for layout; see CR-17), output and input
   charset, and a human-readable reason when anything was degraded.
 - **CR-13** Non-TTY output (pipe, file, CI) MUST be detected.
 - **CR-14** Explicit configuration MUST be settable at most once, before
@@ -165,11 +165,12 @@ mis-measured string shifts every cell to its right.
   a list of styled lines: same context, same state, same output. No
   cursor access, no global state, no I/O.
 - **CR-17** A `RenderContext` MUST carry the resolved capabilities, the
-  theme, and the available width. In canvas mode it MUST also carry the
-  per-frame canvas size (CV-27). Renderables MUST be given their context
-  and MUST NOT reach for process-wide state: reading `Capabilities.size()`
-  for layout after a resize is a defect, because the context is the only
-  size that is current.
+  theme, and the available width. It MAY also carry an optional size that
+  the *caller* fills when it has a current viewport. Renderables MUST be
+  given their context and MUST NOT reach for process-wide state: reading
+  `Capabilities.size()` for layout after a resize is a defect, because the
+  context is the only size that is current. Canvas fills the optional size
+  per frame (see CV-27).
 - **CR-18** The static widget catalogue (`Table`, `Box`, `KeyValueBlock`,
   `Tree`, `Sparkline`, `Rule`, `PatternHighlighter`) MUST be usable by
   every part that can consume a `Renderable`: as a `String`, printed into
@@ -186,12 +187,10 @@ mis-measured string shifts every cell to its right.
 - **CR-22** Only one class MAY touch the underlying terminal library
   (JLine).
 - **CR-23** Only one class MAY contain non-ASCII character literals.
-  Raising `Cancelled` on `Ctrl-C` (CV-49) is **not** a render path and
-  is not a violation of this requirement.
 - **CR-24** No render path MAY throw. A failure in rendering MUST be
   caught, MUST disable further animation, MUST warn once, and MUST fall
   back to plain output. A broken renderable MUST NOT crash the caller's
-  job. Parsing and loading are **not** render paths (AF-6).
+  job. Parsing and loading are **not** render paths.
 - **CR-25** The library MUST NOT log through SLF4J or any logging
   framework.
 - **CR-26** Whatever a part changes about terminal state MUST be restored
@@ -209,15 +208,17 @@ about each other.
 
 - **CR-41** `Cell` MUST be a **core** type: one glyph plus one `Style`,
   with the glyph, the foreground and the background each independently
-  **absent**. Bitmap (BM-1) and canvas (CV-53) both store grids of cells;
-  neither MAY define its own cell type, and absence MUST mean the same
-  thing in both — leave what is underneath (BM-3).
-- **CR-42** `StyledText` and `Renderable` are the **only** interchange
-  between parts. A part that can produce `List<StyledText>` is thereby
-  printable as a `String`, printable into scrollback, and blittable into
-  a Rect, without knowing that any of those consumers exist. New
-  cross-part plumbing is a design defect: add a `Renderable`, not a
-  bridge.
+  **absent**. Absence MUST mean leave what is underneath. Bitmap and
+  canvas both use this type; neither MAY define its own. A stored bitmap
+  is slots that *resolve to* cells; a canvas back buffer *is* cells. That
+  is a shared type, not a claim that paint is a copy of the same array.
+- **CR-42** `StyledText` and `Renderable` are the **print** interchange.
+  A part that can produce `List<StyledText>` is thereby printable as a
+  `String`, printable into scrollback, and blittable as opaque catalogue
+  content, without knowing that any of those consumers exist. Overlay
+  paint is not this contract: it composites core `Cell`s. That is allowed
+  because both sides already depend on core — it is not a new bridge.
+  New *print* plumbing is a design defect: add a `Renderable`.
 - **CR-43** The dependency graph MUST stay acyclic and MUST be exactly:
   core ← text, core ← bitmap, core ← canvas, bitmap ← canvas. Core MUST
   NOT reference text, bitmap or canvas. Text and bitmap MUST NOT
@@ -226,10 +227,8 @@ about each other.
 - **CR-44** Core MUST own the path from a `Renderable` to characters on
   an ordinary stream: rendering a `Renderable` to a `String` with escapes
   applied per the resolved capabilities, using the same single escape
-  emitter as everything else (CR-21). The text part is a *facade* over
-  that path (TX-1), not the owner of it — so bitmap can print to
-  `System.out` exactly like text-mode output (BM-4) without depending on
-  the text part.
+  emitter as everything else (CR-21). Other parts may facade this path;
+  they MUST NOT own a second escape emitter.
 
 ---
 
@@ -241,19 +240,8 @@ business.
 - **NFR-1** Every public type MUST have Javadoc containing a usage snippet.
 - **NFR-2** Tests MUST be written before implementation for anything in
   core.
-- **NFR-3** The canvas MUST be dumpable to a plain string so layouts can
-  be asserted in unit tests with no terminal involved, **and** a virtual
-  terminal emulator MUST consume the library's own output, interpret
-  cursor and erase sequences, and maintain a cell grid, so tests assert
-  *what the user sees* including the scrollback/canvas boundary. Both
-  MUST exist before any canvas milestone is called done.
-- **NFR-4** A frame at 200×50 MUST lay out, paint, diff and flush in well
-  under 16 ms.
-- **NFR-5** Steady-state **layout, paint, diff and flush** MUST NOT
-  allocate per frame. The event queue, `WidgetEvent` records, and key
-  decoding MAY allocate; this requirement does not apply to them.
-- **NFR-6** No flicker, and no scrolling of the terminal other than by
-  `println`, during normal operation of canvas mode.
+- **NFR-3, NFR-4, NFR-5, NFR-6, NFR-19** live in the canvas part. IDs
+  are not reused here.
 - **NFR-7** The concurrency model MUST be explicit and documented: text
   mode is stateless; bitmap values are immutable and thread-confined by
   being immutable; canvas mode is one render thread fed by one queue,
@@ -294,21 +282,13 @@ business.
 - **NFR-18** A milestone is not done until `mvn verify` is green *and* the
   relevant demo has been run and visually checked by a human on a real
   terminal.
-- **NFR-19** **Start-gate (not a milestone):** the conhost rows of NFR-14
-  MUST be verified for canvas mode **before M6 starts**. This is not a
-  done-criterion of M6 and is not deferred to M7. conhost scrolling under
-  `println`-above-region is the risk; macOS rows wait for M7.
 
 ---
 
 ## 4. What the other parts require of core
 
 Core is designed against this table and nothing else. If a part needs
-something not listed here, the table changes first — in this document,
-with an ID — and the part follows.
-
-| Consumer | What it needs from core | Pinned by |
-|---|---|---|
+something n
 | text | `Color`, `Style`, `Theme`, `Capabilities`, escape emission, the "return the string unchanged when escapes can't render" rule | CR-1…CR-5, CR-40, CR-44 |
 | bitmap | `Cell` with absent channels, `Style`, glyph tier + substitution, grapheme width, `Renderable` + `StyledText` | CR-41, CR-6…CR-10, CR-29…CR-31, CR-42 |
 | bitmap | a print path that needs no terminal ownership | CR-44 |
@@ -316,12 +296,16 @@ with an ID — and the part follows.
 | canvas | the bitmap model, to wrap as a widget | BM-8, BM-9, BM-10 |
 
 Two consequences worth stating outright, because they are the reason the
+split is cheap:optional caller-filled size, `Renderable` to print/blit as catalogue content, capability degradation, restore-path rules | CR-41, CR-17, CR-42, CR-26, CR-27 |
+| canvas | the bitmap model, to wrap as a widget | BM-8, BM-9, BM-10, BM-13 |
+
+Two consequences worth stating outright, because they are the reason the
 split is cheap:
 
-1. **A bitmap prints to an ordinary console and paints on the canvas
-   through the same contract.** It is a `Renderable` (BM-4); CR-44 turns
-   any `Renderable` into a `String`, and CV-36 blits any `Renderable`
-   into a Rect. The bitmap part imports neither consumer.
+1. **A bitmap prints and paints through two doors, both using core
+   `Cell`.** Print is `Renderable` → `String` (CR-44, BM-4). Overlay paint
+   is `cellsAt` → `Cell[]` composite. The bitmap part imports neither
+   consumer.
 2. **Animation is not a core concept.** Core has no clock, no thread and
-   no tick. Bitmap supplies a pure `frameAt(elapsed)` (BM-9); canvas
-   supplies the thing that has a clock (CV-90). Neither leaks into core.
+   no tick. Bitmap supplies pure `frameAt` / `cellsAt(elapsed)`; canvas
+   supplies the thing that has a clock

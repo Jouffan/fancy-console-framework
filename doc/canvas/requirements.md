@@ -36,7 +36,7 @@ and smart input are out of scope (CV-67, CV-69).
 
 **IDs `CV-70…CV-89` have moved** to the bitmap part (`BM-*`, `AF-*`);
 see the map's ID table. They MUST NOT be reused here. The canvas side of
-sprites is CV-90…CV-93.
+sprites is CV-90…CV-94.
 
 ---
 
@@ -196,7 +196,7 @@ terminal" means these lines, mechanically.
   sizes are taken, fill-remaining widgets share what is left, again with
   floor. Leftover cells from rounding go to the last widget on that axis
   that is percentage or fill. The same inputs MUST produce the same
-  leftover assignment (CV-28).
+  leftover assignment.
 - **CV-27** Terminal size MUST be re-read per frame, never cached. On
   resize the canvas MUST be recomputed, all widgets re-laid-out, the front
   buffer discarded, and a full repaint issued.
@@ -222,11 +222,12 @@ terminal" means these lines, mechanically.
   `minSize`, `paint(Surface)`, `isDirty`, `onEvent(WidgetEvent)`,
   `onKey(KeyEvent)` returning handled/not-handled, and `acceptsKeys`
   (CV-68). `Surface` offers put-cell, put-text (with alignment and
-  truncation per CR-19), fill-rect, and `blit(Renderable)`.
+  truncation per CR-19), fill-rect, `blit(Renderable)`, and composite of
+  core `Cell[]` (CV-94).
 - **CV-36** Any `Renderable`'s output MUST be blittable into a Rect with
-  clipping, so the static catalogue and anything else that implements the
-  core contract — a bitmap included (BM-4) — works on the canvas
-  unchanged and without a bitmap-specific code path.
+  clipping, so the static catalogue (`Table`, `Panel`, …) works on the
+  canvas unchanged. This is the print door written into cells: absent
+  channels become space + default style. It is **not** the sprite path.
 - **CV-37** A widget MUST be able to mark itself dirty so that one moving
   bar out of eight repaints alone.
 - **CV-38** Placing a widget MUST return a handle offering `update`,
@@ -277,8 +278,9 @@ a time until that listener returns handled. There is one contract,
   path when neither holds. Widgets that don't need keys don't pay for
   raw mode.
 - **CV-46** `KeyListener` MUST decode raw input into a semantic `KeyEvent`
-  (key, modifiers, printable char if any, decoded per CR-37); widgets MUST
-  NOT parse escape sequences themselves.
+  (key, modifiers, printable char if any, decoded per CR-37 — this is
+  where CR-37 is applied); widgets MUST NOT parse escape sequences
+  themselves.
 - **CV-47** Routing rule: a key event is offered to the **focused widget
   first** (if any); if it returns not-handled or there is no focused
   widget, to the **application key handler** (if any); if still not
@@ -370,6 +372,8 @@ a time until that listener returns handled. There is one contract,
   `GraphValues`/`GraphAppend`), `LogPane` (ring buffer, auto-scroll,
   attachable as log sink per CV-13), `Panel` (border and title, as a
   container for a blitted `Renderable`), `AsciiSprite` (CV-90).
+  That shipped list is **closed**. `Widget` is public; applications that
+  need something else implement `Custom` (CV-40) or their own `Widget`.
 - **CV-66** `MultiProgress` MUST offer four policies for log lines
   attributed to a running task — drop, attributed, buffered-per-task,
   and promote — with promote as the default and buffered capped
@@ -381,18 +385,20 @@ a time until that listener returns handled. There is one contract,
 
 ## 13. Sprites — the canvas side of the bitmap part
 
-The bitmap part owns the value and the timing *maths* (BM-8…BM-11); this
+The bitmap part owns the value and the timing *maths* (BM-8…BM-13); this
 part owns the only thing that has a clock. The split is the reason a
 sprite has no thread of its own.
 
 - **CV-90** `AsciiSprite` MUST be a canvas widget wrapping an
   `AsciiAnimation` (BM-8) and nothing more: it keeps an elapsed-time
   accumulator, advances it by the elapsed value carried on `Tick`
-  (CV-40), asks the animation for `frameAt` and `cycleOffsetAt` (BM-9,
-  BM-10), and blits the result. It MUST NOT own a thread, sleep, or read
-  a clock inside `paint`. Because selection is by absolute elapsed time,
-  a slow loop **skips** frames rather than queueing them, and playback
-  speed is independent of the refresh rate (CV-57).
+  (CV-40), asks the animation for `cellsAt(elapsed)` (BM-13), and
+  composites the result (CV-94). It MUST NOT own a thread, sleep, or
+  read a clock inside `paint`. Because selection is by absolute elapsed
+  time, a slow loop **skips** frames rather than queueing them, and
+  playback speed is independent of the refresh rate (CV-57). Construct
+  with `new AsciiSprite(Art.load(...))` or `new AsciiSprite(animation)`.
+  There is no `AsciiSprite.load`.
 - **CV-91** Playback MUST be expressible as widget events (CV-39):
   `PlaySprite(loop)`, `PauseSprite`, `SetFrame(index)`,
   `SetSpriteSpeed(factor)`, `SetCycleOffset(n)`, with the object API
@@ -408,6 +414,12 @@ sprite has no thread of its own.
   without sleeping: feeding a sequence of `Tick`s with synthetic elapsed
   times MUST select frames and cycle offsets deterministically (BM-11),
   and the result MUST be asserted against the NFR-3 canvas dump.
+- **CV-94** `Surface` MUST composite a grid of core `Cell`s onto the back
+  buffer with **per-channel absence** (CR-41, BM-3): an absent glyph
+  leaves the destination glyph; likewise per colour channel. This is the
+  overlay paint door. `AsciiSprite.paint` MUST use it. `blit(Renderable)`
+  (CV-36) MUST NOT be used for sprites: a round-trip through
+  `StyledText` would punch rectangular holes.
 
 ---
 
@@ -475,19 +487,18 @@ console.onKey(e -> {
 ```
 
 `Panel` blits any `Renderable` into its content area (CV-36) — the static
-catalogue and a bitmap arrive by the same door:
+catalogue print door, not the sprite path:
 
 ```java
 Panel panel = new Panel("files");
 console.place(panel, Dock.FILL);
 panel.blit(Table.of(headers, rows));
-panel.blit(AsciiBitmap.load("/art/logo.art"));    // BM-4, no bitmap API here
 ```
 
-A sprite is an animation plus this part's clock (CV-90, CV-91):
+A sprite is an animation plus this part's clock (CV-90, CV-91, CV-94):
 
 ```java
-AsciiSprite spinner = new AsciiSprite(AsciiAnimation.load("/art/spinner.art"));
+AsciiSprite spinner = new AsciiSprite(Art.load("/art/spinner.art"));
 WidgetHandle h = console.place(spinner, Rect.of(2, 1, 5, 3));
 spinner.play();                             // PlaySprite(loop = true)
 spinner.pause();                            // PauseSprite → not dirty (CV-92)
@@ -505,7 +516,40 @@ mp.onTaskLog(encode.id(), "frame 1200");    // promote policy: line goes up
 
 ---
 
-## 15. Out of scope for this part
+## 15. Canvas NFRs and the CR-39 fixture
+
+IDs kept from the v3 / core list. They live here because they are about
+the canvas engine, not the commons.
+
+- **NFR-3** The canvas MUST be dumpable to a plain string so layouts can
+  be asserted in unit tests with no terminal involved, **and** a virtual
+  terminal emulator MUST consume the library's own output, interpret
+  cursor and erase sequences, and maintain a cell grid, so tests assert
+  *what the user sees* including the scrollback/canvas boundary. Both
+  MUST exist before any canvas milestone is called done.
+- **NFR-4** A frame at 200×50 MUST lay out, paint, diff and flush in well
+  under 16 ms.
+- **NFR-5** Steady-state **layout, paint, diff and flush** MUST NOT
+  allocate per frame. The event queue, `WidgetEvent` records, and key
+  decoding MAY allocate; this requirement does not apply to them.
+  Whether `cellsAt` (BM-13) may allocate is open question 6, decided at
+  M4b — not by this NFR pretending paint is a `Renderable` blit.
+- **NFR-6** No flicker, and no scrolling of the terminal other than by
+  `println`, during normal operation of canvas mode.
+- **NFR-19** **Start-gate (not a milestone):** the conhost rows of NFR-14
+  MUST be verified for canvas mode **before M6 starts**. This is not a
+  done-criterion of M6 and is not deferred to M7. conhost scrolling under
+  `println`-above-region is the risk; macOS rows wait for M7.
+- **CR-39** The CR-10 fixture strings MUST be rendered inside a bordered
+  `Table` on a non-UTF-8 console in the test suite, **both** as an
+  immediate print and blitted into a canvas Rect (CV-36), and the result
+  asserted at the byte level through the NFR-3 virtual terminal. "It
+  looked fine" is not a passing condition. This is a canvas-test
+  requirement; core keeps CR-10 and the encoding rules.
+
+---
+
+## 16. Out of scope for this part
 
 - Mouse support.
 - Constraint-solver or flexbox-style content-reflowing layout.
@@ -514,5 +558,5 @@ mp.onTaskLog(encode.id(), "frame 1200");    // promote policy: line goes up
 - Forms and smart input (CV-67, CV-69). The `onKey` hook and CV-47
   routing stay; the widgets do not.
 - Multiple canvases per process.
-- Defining bitmap or animation semantics. This part consumes BM-8…BM-11
+- Defining bitmap or animation semantics. This part consumes BM-8…BM-13
   and MUST NOT restate them.

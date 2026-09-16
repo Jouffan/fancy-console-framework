@@ -13,10 +13,11 @@ reading.
 | bitmap | `doc/bitmap/requirements.md` + `doc/bitmap/art-format.md` | `doc/bitmap/architecture.md` | `BM`, `AF` | core |
 | canvas | `doc/canvas/requirements.md` | `doc/canvas/architecture.md` | `CV` | core, bitmap |
 
-**Work in one part at a time.** A change that seems to need a new edge
-in that table is almost always a missing `Renderable` (CR-42), not a
-missing dependency. Cross-part rules live in core §2.7 (CR-41…CR-44) and
-nowhere else.
+**Work in one part at a time.** A change that seems to need a new *print*
+edge in that table is almost always a missing `Renderable` (CR-42), not a
+missing dependency. Overlay paint is Cell composite (BM-13, CV-94), not
+a third interchange. Cross-part rules live in core §2.7 (CR-41…CR-44)
+and the map.
 
 This branch was written against **v2** (three tiers, pin/strip). A class
 that compiles and has tests is not therefore correct. Keep / reinterpret /
@@ -34,7 +35,7 @@ This workspace may contain **docs only**. Do not invent a source tree.
 | CR-22 | Only one class touches JLine (`internal.TerminalPort`) |
 | CR-23 | Only one class contains non-ASCII literals (`internal.Glyphs`) |
 | CR-41 | `Cell` is a **core** type. Bitmap and canvas share it; neither defines its own |
-| CR-42 | `StyledText` / `Renderable` are the only cross-part interchange |
+| CR-42 | `StyledText` / `Renderable` are the **print** interchange. Overlay paint is Cell composite (CV-94) |
 | CR-43 | Dependency graph is acyclic and fixed: core ← text, core ← bitmap, core ← canvas, bitmap ← canvas |
 | CR-44 | Core owns `Renderable → String`. Text is a facade over it, not the owner |
 | CV-22 | No public path to the terminal writer; no caller-written escapes |
@@ -59,8 +60,9 @@ JPMS: `module-info.java`, module `dev.consolekit`; do **not** export
 - Tests: JUnit 5. Goldens: `src/test/resources/golden/`, UTF-8, `\n`
   (NFR-13). Canvas layouts: `AsciiCanvas.dump()`, no terminal.
   What-the-user-sees: `internal.VirtualTerminal`.
-- NFR-5 (no alloc per frame) applies to **layout / paint / diff / flush
-  only**. The event queue may allocate.
+- NFR-5 (no alloc per frame) lives in the canvas part and applies to
+  **layout / paint / diff / flush only**. The event queue may allocate.
+  `cellsAt` allocation is open question 6 (M4b).
 
 ## Current work
 
@@ -76,9 +78,9 @@ skip.
 | M3 | canvas engine, `place` / `update` / `focus` / `remove` | no `send` yet. CV-9 and CV-13 are **new**. Create `core.Cell` here (CR-41) |
 | M3b | package-scan test for the CR-43 layering | cheap now, archaeology later |
 | M4 | `WidgetId`, `WidgetEvent`, `handle.send`, catalogue | `Tick` carries elapsed time |
-| M4b | bitmap part: `AsciiBitmap`, `Palette`, `AsciiAnimation`, `.art` codec (BM-1…BM-12, AF-1…AF-8) | needs core only; still-bitmap half testable with no canvas |
-| M4c | `AsciiSprite` (CV-90…CV-93) | needs M4 `Tick` + M4b. Should be a dozen lines |
-| M5 | content-side encoding CR-29…CR-36, CR-39 | before keys (CR-37) |
+| M4b | bitmap part: `AsciiBitmap`, `Palette`, `AsciiAnimation`, `cellsAt` (BM-1…BM-13, AF-1…AF-8) | needs core only; still-bitmap half testable with no canvas |
+| M4c | `AsciiSprite` (CV-90…CV-94) | needs M4 `Tick` + M4b. Clock + CV-94 composite, not `blit(Renderable)` |
+| M5 | content-side encoding CR-29…CR-36; CR-39 in canvas tests | before keys (CR-37) |
 | NFR-19 | conhost canvas rows of NFR-14 | **start-gate**, not a milestone. Before M6 **starts**. Not M6-done, not M7 |
 | M6 | `KeyListener`, focus slot, CV-47 | built-ins `Ctrl-C` and `Ctrl-L` only |
 | M7 | remaining NFR-14 rows, including macOS | does not relax NFR-19 |
@@ -123,32 +125,37 @@ own visualisation. That is not a form.
   `remove`. Field on every `WidgetEvent`, stamped by `handle.send`.
   `send` is M4.
 - **Percentage leftover** (CV-26): `floor`; remainder to the last
-  percentage-or-fill widget on that axis (CV-28).
+  percentage-or-fill widget on that axis.
 - **KeyListener decodes and enqueues.** It does not route and does not
   call widgets. Routing is `AsciiCanvas` on drain (CV-47).
 - **Focus** is a slot, not a navigator (CV-48).
-- **`AsciiBitmap`** (BM-1) is a `Renderable` value in `dev.consolekit.bitmap`:
-  X × Y core cells, per-channel transparency (BM-3), single-column cells
-  validated at construction (BM-2). Its **only** output contract is
-  `Renderable` (BM-4) — that is what makes it printable to an ordinary
-  console (CR-44), into scrollback (CV-10) and onto the canvas (CV-36)
-  with no consumer-specific code. Never add a `print()` or a
-  `paint(Surface)` to it.
-- **Animation is a pure function of elapsed time**: `frameAt(elapsed)` /
-  `cycleOffsetAt(elapsed)` in bitmap (BM-9, BM-10); the clock lives in
-  `AsciiSprite` (CV-90), which is the only piece that may have one.
-  Frames are skipped, never queued. Paused or unchanged ⇒ not dirty
-  (CV-92).
+- **Two output doors.** Print: `Renderable` → `StyledText` → `String`
+  (CR-44, BM-4). Paint: `cellsAt(elapsed)` → core `Cell[]` → composite
+  (BM-13, CV-94). `Surface.blit(Renderable)` is catalogue / `Panel`,
+  **not** the sprite path. Never add `print()` or `paint(Surface)` to
+  the bitmap.
+- **`AsciiBitmap`** (BM-1) is a value in `dev.consolekit.bitmap`: X × Y
+  glyph-slot + style-slot pairs plus tables (AF-3), per-channel
+  transparency (BM-3), single-column cells validated at construction
+  (BM-2). It implements `Renderable` for the print door.
+- **Animation is a pure function of elapsed time**: `frameAt` /
+  `cycleOffsetAt` / `cellsAt(elapsed)` in bitmap (BM-9, BM-10, BM-13);
+  the clock lives in `AsciiSprite` (CV-90), which is the only piece that
+  may have one. Frames are skipped, never queued. Paused or unchanged ⇒
+  not dirty (CV-92). Construct sprites with `new AsciiSprite(Art.load(...))`.
+  No `AsciiBitmap.load` / `AsciiSprite.load`.
 - **`.art`** (AF-1…AF-8) is the *one* persistence format for both — a
-  bitmap is a one-frame animation. **Binary**, uncompressed, big-endian,
-  single forward pass: magic + header + glyph table + style table +
-  frames. A cell is **2 bytes** — glyph slot, style slot — slot `0` =
-  transparent, so ≤ 255 glyphs and ≤ 255 styles per file. A style slot
-  indexes a full `Style` (fg/bg/attrs), **not** a packed VGA attribute.
-  Check every declared count against its cap **before** allocating; throw
-  with the byte offset. Load is **not** a render path, CR-24 does not
-  apply. Text (rows + palette) is the authoring and review surface only
+  bitmap is a one-frame animation. I/O is **`Art.load` / `Art.write`
+  only**. **Binary**, uncompressed, big-endian, single forward pass:
+  magic + header + glyph table + style table + frames. A stored cell is
+  **2 bytes** — glyph slot, style slot — slot `0` = transparent, so
+  ≤ 255 glyphs and ≤ 255 styles per file. A style slot indexes a full
+  `Style` (fg/bg/attrs), **not** a packed VGA attribute. Check every
+  declared count against its cap **before** allocating; throw with the
+  byte offset. Load is **not** a render path, CR-24 does not apply.
+  Text (rows + palette) is the authoring and review surface only
   (BM-5, AF-7) — `toSource()` is a view, never a second file format.
+  `AsciiBitmap.parse` stays for authoring.
 - **Big/filled art is not hand-written**: `AsciiBitmap.generate(w, h,
   (x,y) -> Cell)` evaluated once at construction (BM-7, never a
   per-paint callback), and **palette cycling** (BM-10) animates an
@@ -164,6 +171,8 @@ own visualisation. That is not a form.
 3. Whether `Snippets.print…` (TX-14) stays.
 4. Whether the four parts ever become separate artefacts — not now.
 5. The `.art` size/dimension/frame caps (AF-6) — pick them at M4b.
+6. Whether `cellsAt` may allocate, or must fill a caller-supplied
+   buffer — pick at M4b. Do not pretend paint is a `Renderable` blit.
 
 ## Packages
 
@@ -176,4 +185,6 @@ bitmap ← canvas. Nothing else.
 
 Canvas widgets: `Label`, `StatusBar`, `Clock`, `ProgressBar`, `Spinner`,
 `MultiProgress`, `StatusList`, `Graph`, `LogPane`, `Panel`,
-`AsciiSprite`. That list is closed for this library.
+`AsciiSprite`. That shipped list is closed. `Widget` is public;
+applications that need something else implement `Custom` or their own
+`Widget`.

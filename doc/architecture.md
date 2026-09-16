@@ -62,37 +62,51 @@ only escape emitter (CR-21), `TerminalPort` the only JLine toucher
 
 ## 3. How output crosses the seams
 
+Two doors. `StyledText` cannot carry per-channel absence, so overlay
+paint is not a `Renderable` blit.
+
+**Print door** — `Renderable` → `StyledText` → `String` (CR-44):
+
 ```
        ┌──────────────┐  Renderable    ┌───────────────┐
        │ widget.Table │───────────────►│ core: render  │──► String  (text mode)
-       │ AsciiBitmap  │                │ + Ansi        │──► stream  (println)
+       │ AsciiBitmap  │                │ + Ansi        │──► stream  (println / CV-10)
        └──────────────┘                └───────────────┘
-                │ Renderable
-                ▼
-       ┌───────────────────┐
-       │ canvas: Surface   │──► Cell[] back buffer ──► LiveRegion ──► TerminalPort
-       │ .blit(Renderable) │
-       └───────────────────┘
 ```
 
-There is exactly one producer contract (`Renderable`) and two consumers.
-Adding a third consumer must not add a producer contract. `Cell` being a
-core type is what keeps the lower arrow a copy rather than a conversion.
+`Surface.blit(Renderable)` is this door written into cells (catalogue
+`Table` / `Panel`). Absent channels become space + default style.
+
+**Paint door** — `cellsAt(elapsed)` → core `Cell[]` → composite (CV-94):
+
+```
+       AsciiAnimation.cellsAt(elapsed)  ──►  Cell[]  ──►  Surface composite
+                                                              │  per-channel absence
+                                                              ▼
+                                                    Cell[] back buffer ──► LiveRegion
+```
+
+`Cell` is the shared type (CR-41). Stored bitmaps are slots (AF-3); paint
+resolves, then composites. That is not a memcpy and not a new part-to-part
+bridge — both sides already depend on core.
 
 ## 4. How time crosses the seams
 
 ```
 AnimationLoop (canvas)  ──Tick(elapsed)──►  AsciiSprite (canvas)
-                                                  │ frameAt(elapsed)
+                                                  │ cellsAt(elapsed)   (BM-13)
                                                   ▼
                                           AsciiAnimation (bitmap)  ── pure
+                                                  │
+                                                  ▼ Cell[]
+                                          Surface composite (CV-94)
 ```
 
 Core has no clock. Bitmap has no clock — it has arithmetic on a
 `Duration` handed to it. Canvas has the only clock, in one class
 (`AnimationLoop`), and one thread (CV-57). Any future time-based widget
 uses the same shape: pure function in a value, elapsed time from the
-tick.
+tick. Overlay paint is the Cell composite door, not `blit(Renderable)`.
 
 ## 5. Migration order
 
@@ -115,10 +129,12 @@ tick.
 6. `EventQueue`, `WidgetId`, `WidgetEvent`, `handle.send`,
    `EventRecorder/Replayer`, then the event-driven catalogue (M4).
 7. Bitmap part (M4b): `AsciiBitmap` + `Palette` + `ArtText` first — it is
-   testable with nothing but core — then `AsciiAnimation`, then
-   `ArtFormat` against byte goldens. Then `AsciiSprite` (M4c), which
-   should be a dozen lines if the previous step was done right.
+   testable with nothing but core — then `AsciiAnimation` including
+   `cellsAt` (BM-13), then `ArtFormat` against byte goldens. Then
+   `AsciiSprite` (M4c): a clock plus CV-94 composite. Do not start M4c
+   until the two-door story is in the docs (it is).
 8. Content-side encoding (M5) — before keys, because CR-37 needs it.
+   The CR-39 fixture lives in canvas tests.
 9. **NFR-19 start-gate (not a milestone):** the conhost rows of NFR-14
    MUST be verified for canvas mode **before M6 starts**. conhost
    scrolling under `println`-above-region is the risk.
@@ -134,7 +150,7 @@ tick.
 | `core.*` (`Color`, `Style`, `Attr`, `Capabilities`, `GlyphTier`, `StyledText`, `Theme`, `RenderContext`, `ConsoleOptions`) | **keep** — add `Color` constants (CR-40) and `Cell` (CR-41) |
 | `internal.Ansi`, `internal.Glyphs`, `internal.TextWidth`, `internal.TerminalPort` | **keep** — the CR-21/22/23 single-class homes |
 | `Text` | **keep** — complete for TX-8; `Styler`/`Snippets` are new siblings |
-| `render.Renderable`, `widget.*` (static catalogue) | **keep** — now printed or blitted (CR-42) |
+| `render.Renderable`, `widget.*` (static catalogue) | **keep** — print door and `blit(Renderable)` (CR-42, CV-36) |
 | `render.AsciiWidget`, `render.PinHandle`, `render.PinContext`, `internal.PinStack`, `FancyConsole.pin` | **obsolete** — replaced by `canvas.Widget` / `place` |
 | `internal.LiveRegion` | **reinterpret** — keeps "bottom N rows repainted above scrollback"; line-diff becomes cell-diff (CV-54) |
 | `internal.VirtualTerminal` | **reinterpret** — extend from line frames to a cell grid (NFR-3) |
