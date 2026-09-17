@@ -10,17 +10,35 @@ knowledge of what they need.
 
 ## 1. Packages
 
+Artefact `consolekit-core`, module `dev.consolekit.core`. No third-party
+dependency — not even JLine (NFR-8); the terminal lives in canvas.
+
 ```
-dev.consolekit.core       Color, Style, Attr, Cell, Capabilities, GlyphTier,
-                          StyledText, Theme, RenderContext, ConsoleOptions
-dev.consolekit.render     Renderable                  (the static contract)
-dev.consolekit.widget     Table, Box, KeyValueBlock, Tree, Sparkline,
-                          Rule, PatternHighlighter, Border
-dev.consolekit            Probe                       (diagnostics)
-                          ConsoleRuntime              (the one static holder)
-dev.consolekit.internal   NOT exported. Ansi, Glyphs, TextWidth, Encoding,
-                          TerminalPort
+dev.consolekit.core          Color, Style, Attr, Cell, Capabilities, GlyphTier,
+                             StyledText, Theme, RenderContext, ConsoleOptions,
+                             ConsoleRuntime  (the one static holder)
+                             Probe           (diagnostics)
+dev.consolekit.core.render   Renderable                  (the static contract)
+dev.consolekit.core.widget   Table, Box, KeyValueBlock, Tree, Sparkline,
+                             Rule, PatternHighlighter, Border
+dev.consolekit.core.internal NOT exported. Ansi, Glyphs, TextWidth, Encoding
 ```
+
+`ConsoleRuntime` holds process-wide mutable state (NFR-12) but MUST NOT
+know what that state *is*: it offers an **opaque slot** that a consumer
+claims and reads back through its own type. The canvas session lives in
+that slot without core ever naming a canvas type — otherwise core would
+depend on canvas and CR-43 would be a compile error.
+
+`Probe` reports what **core** resolved: colour depth, glyph tier,
+charsets, code page, the test card (CR-15, CR-38). It does not dump
+`.art`; that is `bitmap.ArtProbe` (AF-7), because core cannot see the
+bitmap part.
+
+`Capabilities` is resolved from the JDK and the environment only —
+`System.console()`, `NO_COLOR`, `TERM`, charsets. The **probe-time size**
+(CR-12) is therefore optional: absent unless something with a terminal
+fills it. Layout never reads it anyway (CR-17).
 
 `Cell` lives here, not in `canvas` (CR-41): absence means the same thing
 everywhere (leave what is underneath). A stored bitmap is slots that
@@ -49,7 +67,7 @@ Nothing reads `Capabilities.size()` for layout.
 ## 3. The output path (CR-44)
 
 ```
-Renderable ──► List<StyledText> ──► internal.Ansi ──► String / stream
+Renderable ──► List<StyledText> ──► core.internal.Ansi ──► String / stream
                                      (the only escape emitter, CR-21)
 ```
 
@@ -59,10 +77,12 @@ to print to `System.out` without owning a second emitter. Capability
 gating happens once, here: when escapes can't be rendered the spans are
 concatenated unchanged.
 
-`internal.Ansi` is the only class containing escape bytes, `Glyphs` the
-only class containing non-ASCII literals, `TerminalPort` the only class
-touching JLine (CR-21…CR-23). Source-scan tests enforce all three, plus
-the CR-43 package layering (NFR-10).
+`core.internal.Ansi` is the only class containing escape bytes and
+`core.internal.Glyphs` the only class containing non-ASCII literals
+(CR-21, CR-23); source-scan tests enforce both, scoped to `src/main`.
+The CR-22 JLine monopoly is `canvas.internal.TerminalPort` \u2014 core has no
+JLine dependency at all. CR-43 needs no scan here: it is a compile error
+(NFR-10).
 
 ## 4. Encoding (CR-28…CR-38)
 
@@ -77,7 +97,8 @@ encoder) is done; the content side is M5.
 
 ## 5. Test support
 
-`VirtualTerminal` (in `internal`, used by canvas tests) and the golden
-files under `src/test/resources/golden/` are shared by every part. Any
-part may assert through `Renderable → String`; only canvas needs the
-terminal emulator.
+The golden files under `src/test/resources/golden/` are the shared
+assertion surface, and any part may assert through `Renderable → String`
+with no terminal. The virtual terminal emulator is **canvas-only**
+(`canvas.internal.VirtualTerminal`, NFR-3); core cannot see it and does
+not need it.

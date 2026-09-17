@@ -67,7 +67,7 @@ of `(char, colour)` pairs, and a format that is not a grid of
   animation as the BM-5 rows-plus-palette text, and
   `parse(text) → write → read` MUST produce an equal value. The text form
   is a projection of the value, never a second on-disk format, and
-  `Probe` MUST be able to dump an `.art` file to it so a broken file can
+  `ArtProbe` MUST be able to dump an `.art` file to it so a broken file can
   be read without a hex editor.
 - **AF-8** Versioning MUST be explicit and MUST fail closed: a reader
   encountering a **major** version it does not know MUST refuse the file;

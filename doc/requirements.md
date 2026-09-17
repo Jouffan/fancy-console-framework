@@ -118,17 +118,17 @@ Cell composite door (CV-94), not a third interchange.
 
 | # | Deliverable | State |
 |---|---|---|
-| M1 | Core model, capabilities, `Text` | done (v2 M0–M1) |
+| M0 | Build skeleton, `module-info.java`, the NFR-10 structural scan tests (CR-21, CR-22, CR-23, CR-43, CV-22) | not started |
+| M1 | Core model, capabilities, `Text` (CR-1…CR-20, TX-1…TX-9) | not started |
 | M1b | `Styler`, `Snippets`, `Color` named constants (TX-10…TX-15, CR-40) | not started |
-| M2 | Static `Renderable` catalogue (CR-18) | done (v2 M2) |
-| M3 | Canvas engine: buffers, layout, blit, flush diff, canvas-above-scrollback routing, stream capture, restore paths, virtual terminal, `place`/`update`/`focus`/`remove` (CV-1…CV-38 except `handle.send`, CV-53…CV-63) | partially reusable from v2 M3 |
-| M3b | Layering: move `Cell` to core, package-scan test (CR-41, CR-43) | not started |
+| M2 | Static `Renderable` catalogue (CR-18) | not started |
+| M3 | Canvas engine: buffers, layout, blit, flush diff, canvas-above-scrollback routing, stream capture, restore paths, virtual terminal, `place`/`update`/`focus`/`remove` (CV-1…CV-38 except `handle.send`, CV-53…CV-63). Create `core.Cell` here (CR-41) | not started |
 | M4 | Event core (`WidgetId`, `WidgetEvent`, `handle.send`) + event-driven widget catalogue (CV-39…CV-44, CV-65, CV-66) | not started |
-| M4b | Bitmap part: `AsciiBitmap`, `Palette`, `AsciiAnimation` (BM-1…BM-13) and the `.art` codec (AF-1…AF-8) | not started |
+| M4b | Bitmap part: `AsciiBitmap`, `Palette`, `AsciiAnimation` (BM-1…BM-13) and the `.art` codec (AF-1…AF-8). Needs **core only** | not started |
 | M4c | `AsciiSprite` (CV-90…CV-94). Needs M4's `Tick` and M4b | not started |
 | M5 | Content-side encoding robustness (CR-29…CR-36). Cross-part fixture CR-39 lives in canvas tests | not started |
 | M6 | `KeyListener`, single-consumer forwarding, focus slot (CV-45…CV-52, CV-68, CV-69). No form widgets. Do not start until NFR-19 has passed | not started |
-| M7 | Remaining NFR-14 platform rows (`SUPPORTED-TERMINALS.md`), including macOS | 1 of 10 |
+| M7 | Remaining NFR-14 platform rows (`SUPPORTED-TERMINALS.md`), including macOS | 0 of 10 |
 
 M4b needs only core and M3 for the still-bitmap half; the animation half
 is pure value code and needs nothing. M5 is deliberately before M6:
@@ -140,32 +140,34 @@ be verified for canvas mode **before M6 starts**.
 
 ## 5. Status
 
-This workspace may be **docs only**. “v2 code” means the earlier branch,
-not files here.
+This repository is **docs only**. There is no source tree, and nothing
+below is implemented. A v2 prototype (three tiers, pin/strip) existed on
+an earlier branch; it is **prior art, not a starting point**, and it is
+not merged here. Every milestone below starts from the specification.
 
 | Area | Requirements | State |
 |---|---|---|
-| Core model | CR-1 … CR-15 | v2 code |
-| One colour type | CR-40 | v2: `Color` exists; named constants missing |
-| Layering and interchange | CR-41 … CR-44 | **not started** (`Cell` still to be created in core) |
-| Encoding robustness | CR-28 … CR-38 | v2: glyph side done; content side not started |
-| Encoding fixture on canvas | CR-39 (canvas tests) | **not started** |
-| Shared render contract | CR-16 … CR-20 | v2 code |
-| Terminal safety | CR-21 … CR-27 | v2 code, for the strip engine |
-| Text mode, static | TX-1 … TX-9 | v2 code |
-| Text mode, `Styler` / `Snippets` | TX-10 … TX-15 | **not started** |
-| Bitmap model | BM-1 … BM-13 | **not started** |
-| `.art` format | AF-1 … AF-8 | **not started** |
-| Canvas ownership, println, capture | CV-1 … CV-22 | v2 strip engine; needs canvas retarget |
-| Canvas layout, widget model | CV-23 … CV-38 | **not started** |
-| Widget events | CV-39 … CV-44 | **not started** |
-| KeyListener | CV-45 … CV-52, CV-68, CV-69 | **not started** |
-| Rendering | CV-53 … CV-59, CV-94 | v2 line-diff; cell diff and cell-composite not started |
-| Degradation | CV-60 … CV-63 | v2 code |
-| Widget catalogue | CV-64 … CV-67 | v2 static done; canvas widgets not started |
-| Sprites | CV-90 … CV-94 | **not started** |
+| Core model | CR-1 … CR-15 | not started |
+| One colour type | CR-40 | not started |
+| Layering and interchange | CR-41 … CR-44 | not started |
+| Encoding robustness | CR-28 … CR-38 | not started |
+| Encoding fixture on canvas | CR-39 (canvas tests) | not started |
+| Shared render contract | CR-16 … CR-20 | not started |
+| Terminal safety | CR-21 … CR-27 | not started |
+| Text mode, static | TX-1 … TX-9 | not started |
+| Text mode, `Styler` / `Snippets` | TX-10 … TX-15 | not started |
+| Bitmap model | BM-1 … BM-13 | not started |
+| `.art` format | AF-1 … AF-8 | not started |
+| Canvas ownership, println, capture | CV-1 … CV-22 | not started |
+| Canvas layout, widget model | CV-23 … CV-38 | not started |
+| Widget events | CV-39 … CV-44 | not started |
+| KeyListener | CV-45 … CV-52, CV-68, CV-69 | not started |
+| Rendering | CV-53 … CV-59, CV-94 | not started |
+| Degradation | CV-60 … CV-63 | not started |
+| Widget catalogue | CV-64 … CV-67 | not started |
+| Sprites | CV-90 … CV-94 | not started |
 | Canvas NFRs | NFR-3 … NFR-6, NFR-19 | live in the canvas part |
-| Platform verification | NFR-14 … NFR-18 | 1 of 10 rows (v2) |
+| Platform verification | NFR-14 … NFR-18 | 0 of 10 rows |
 
 ## 6. ID history
 
@@ -211,12 +213,12 @@ Each part restates its own; these apply everywhere.
 
 Carried from v3 unless marked new.
 
-- **Four parts, one JPMS module.** *(new)* The split is documentary and
-  by package, not by artefact: there is still exactly one module
-  `dev.consolekit`. CR-43 makes the graph acyclic, so extracting
-  artefacts later would be mechanical — but it is not done now, and
-  "which artefact does this go in" is not a question anyone has to
-  answer yet. See §9 open question 4.
+- **Four parts, four artefacts.** *(v4)* Each part is its own Maven
+  artefact and its own JPMS module (NFR-9b): `consolekit-core`,
+  `consolekit-text`, `consolekit-bitmap`, `consolekit-canvas`. The
+  reactor enforces CR-43 — an illegal edge does not compile. JLine is a
+  **canvas** dependency only; core, text and bitmap have no third-party
+  dependency at all. This closes what was open question 4.
 - **`Cell` is core.** *(new)* Same type, same meaning of absence
   (CR-41). Stored bitmaps are slots (AF-3); `cellsAt` resolves them.
 - **Animation is a pure function of elapsed time** *(new)*, in bitmap;
@@ -254,10 +256,8 @@ Carried from v3 unless marked new.
 2. **Nested widgets (CV-32).** Deferred until a widget actually needs
    them.
 3. **Should `Snippets.print…` exist at all** (TX-14)?
-4. **Do the parts ever become separate artefacts?** *(new)* Not now
-   (§8). Revisit only if someone genuinely wants the bitmap part without
-   JLine on the classpath — which is the one case the split would
-   actually pay for.
+4. *(closed)* **Do the parts ever become separate artefacts?** Yes \u2014
+   decided in §8. Four artefacts, four modules (NFR-9b).
 5. **`.art` caps (AF-6).** The documented maxima for width, height,
    frame count and file size are not chosen yet; pick them when M4b
    starts, with the 80 × 24 full-canvas frame as the sizing reference.

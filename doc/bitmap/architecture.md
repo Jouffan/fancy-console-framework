@@ -10,11 +10,18 @@ in this package.
 
 ## 1. Packages
 
+Artefact `consolekit-bitmap`, module `dev.consolekit.bitmap`. Depends on
+core only; no JLine, no third-party dependency.
+
 ```
-dev.consolekit.bitmap     AsciiBitmap, Palette, AsciiAnimation, Anchor, Art
-dev.consolekit.internal   NOT exported. ArtFormat  (binary codec)
-                          ArtText    (authoring parse + toSource view)
+dev.consolekit.bitmap          AsciiBitmap, Palette, AsciiAnimation, Anchor,
+                               Art, ArtProbe
+dev.consolekit.bitmap.internal NOT exported. ArtFormat  (binary codec)
+                               ArtText    (authoring parse + toSource view)
 ```
+
+`ArtProbe` is the `.art` dump of AF-7. It lives here, not in
+`core.Probe`, because core cannot depend on this part (CR-43).
 
 `Cell` is core (CR-41). This package defines no cell type, no colour
 type and no style type.
@@ -80,7 +87,7 @@ Layout, slot semantics and the versioning rules are normative in
 Parses the rows-plus-palette authoring syntax (BM-5) and renders
 `toSource()` (AF-7). It produces and consumes the same value object; it
 never produces a file. This is how a binary `.art` gets reviewed, diffed
-in a test failure message, and dumped by `Probe`.
+in a test failure message, and dumped by `ArtProbe`.
 
 Because palette entries carry the emitted glyph separately from the
 source character, an authoring block stays one character per cell while

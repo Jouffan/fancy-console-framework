@@ -3,10 +3,12 @@
 Part 2 of 4. Requirements: [text/requirements.md](requirements.md).
 See [the map](../architecture.md).
 
-Three public types, all in `dev.consolekit`, all facades over the core
-output path (CR-44). No state, no threads, no JLine.
+Three public types, all in `dev.consolekit.text` (artefact
+`consolekit-text`, module `dev.consolekit.text`), all facades over the
+core output path (CR-44). No state, no threads, no JLine, no third-party
+dependency.
 
-## `Text` **[exists]**
+## `Text`
 
 Static `String`-returning helpers designed for `import static`: sixteen
 named colours, `fg`/`bg`, six attributes, theme roles, `styled(Style, s)`,
@@ -15,7 +17,7 @@ JDK only (never JLine); returns the input unchanged when escapes can't be
 rendered; closes each span with its specific SGR-off code (never `SGR 0`);
 registers the SGR-reset shutdown hook on first escape.
 
-## `Styler` **[new]**
+## `Styler`
 
 An immutable value over a `Theme`. Same role-method names as `Text`, as
 instance methods:
@@ -32,7 +34,7 @@ text)` — the same package-private seam `Text` already exposes for tests.
 the application can pass around, inject, or swap per environment, without
 `Text` growing mutable state.
 
-## `Snippets` **[new]**
+## `Snippets`
 
 Glyph-tier-aware one-liners, all colourable, all returning `String`:
 `line(Color)`, `line(Color, width)`, `rule(Color, title)`, `ok`/`fail`/

@@ -46,35 +46,42 @@ is live; that is what "protected output" means.
 
 ## 1. Packages
 
+Artefact `consolekit-canvas`, module `dev.consolekit.canvas`. This is the
+**only** artefact with a third-party dependency: JLine (NFR-8).
+
 ```
-dev.consolekit            FancyConsole                 (entry point)
-dev.consolekit.canvas     Widget, WidgetHandle, Placement, Dock, Size, Rect,
-                          Surface, Focus
-dev.consolekit.canvas.widget
-                          Label, StatusBar, Clock, ProgressBar, Spinner,
-                          MultiProgress, StatusList, Graph, LogPane, Panel,
-                          AsciiSprite
-dev.consolekit.event      WidgetEvent (sealed) and its records,
-                          EventRecorder / EventReplayer
-dev.consolekit.input      KeyEvent, Key, Modifiers
-dev.consolekit.internal   NOT exported. LiveRegion, ScrollbackWriter,
-                          StreamCapture, AnimationLoop, EventQueue,
-                          KeyListener, CanvasBuffer, Layout, Blitter,
-                          VirtualTerminal (test support)
+dev.consolekit.canvas          FancyConsole                 (entry point)
+                               Widget, WidgetHandle, Placement, Dock, Size,
+                               Rect, Surface, Focus
+dev.consolekit.canvas.widget   Label, StatusBar, Clock, ProgressBar, Spinner,
+                               MultiProgress, StatusList, Graph, LogPane,
+                               Panel, AsciiSprite
+dev.consolekit.canvas.event    WidgetEvent (sealed) and its records,
+                               EventRecorder / EventReplayer
+dev.consolekit.canvas.input    KeyEvent, Key, Modifiers
+dev.consolekit.canvas.internal NOT exported. TerminalPort, LiveRegion,
+                               ScrollbackWriter, StreamCapture, AnimationLoop,
+                               EventQueue, KeyListener, CanvasBuffer, Layout,
+                               Blitter, VirtualTerminal (test support)
 ```
+
+`TerminalPort` is the CR-22 single JLine toucher and it lives here, which
+is what keeps JLine off the classpath of anyone using core, text or
+bitmap alone.
 
 `Cell`, `StyledText`, `Renderable` and `Color` come from core (CR-41,
 CR-42). `AsciiAnimation` comes from bitmap (BM-8); that is the only
 inbound dependency this part has on another part (CR-43).
 
-`render.AsciiWidget`, `PinHandle`, `PinContext` and `internal.PinStack`
-are **obsolete** and are deleted once `canvas.Widget` lands — not kept
-"for compatibility"; there are no external users.
+There is no `pin` API and no `AsciiWidget` / `PinHandle` / `PinContext` /
+`PinStack`. Those were the v2 prototype's shape; `place` returning a
+`WidgetHandle` replaces all of them. Do not reintroduce them.
 
-## 2. `FancyConsole` **[exists, retarget]**
+## 2. `FancyConsole`
 
-A thin per-instance facade over the process-wide session in
-`ConsoleRuntime.Mode2Session`. Already correct and to keep:
+A thin per-instance facade over the process-wide session, which is held
+in the opaque `ConsoleRuntime` slot (NFR-12) so that core never names a
+canvas type. Required shape:
 
 - `new FancyConsole()` with no setup; lazy holder-class session open.
 - Multiple instances share one engine; each tracks and removes only what
@@ -101,7 +108,7 @@ To change:
   percentage of the viewport at this option; fill-remaining is a
   *widget* size, resolved after `h` is known.
 
-## 3. `AsciiCanvas` **[new]**
+## 3. `AsciiCanvas`
 
 One tick body, four steps, all on the render thread:
 
@@ -132,23 +139,20 @@ One tick body, four steps, all on the render thread:
 The canvas is dumpable to a plain `String` grid (NFR-3); every layout
 test uses this, not a terminal.
 
-## 4. `LiveRegion` **[reinterpret]**
+## 4. `LiveRegion`
 
-Already the only class that moves the cursor, and already implements the
-key trick of this whole design: *erase the region, print the scrollback
-line, repaint the region* so log lines flow above a live block without
-smearing. That stays exactly as it is.
+The only class that moves the cursor, and the home of the key trick of
+this whole design: *erase the region, print the scrollback line, repaint
+the region*, so log lines flow above a live block without smearing.
 
-What changes is the repaint: today it diffs a `List<StyledText>` frame
-line-by-line; it must instead diff two cell buffers and emit per-row runs
-(`CUP` + text, style escapes only on change), with a reused byte buffer
-and one write per frame. The "print above region" path forces a full
-region repaint (front buffer invalidated) because the terminal has
-scrolled under it.
+The repaint diffs two cell buffers and emits per-row runs (`CUP` + text,
+style escapes only on change), with a reused byte buffer and one write
+per frame. The "print above region" path forces a full region repaint
+(front buffer invalidated) because the terminal has scrolled under it.
 
-## 5. `ScrollbackWriter`, `StreamCapture` **[exists]**
+## 5. `ScrollbackWriter`, `StreamCapture`
 
-Unchanged. `System.out`/`System.err` are wrapped while the canvas is
+`System.out`/`System.err` are wrapped while the canvas is
 live; partial lines are buffered with a stale-flush timeout; capture
 chains onto a pre-existing replacement; the library's own writes bypass
 capture; restore returns the exact prior instances from `finally` and
@@ -156,7 +160,7 @@ from the shutdown hook; capture starts/stops on the widget-count 0↔1
 transition. These are CV-12 and CV-14…CV-21 and they are the reason the
 part exists — do not "simplify" them.
 
-## 6. `EventQueue` and `WidgetEvent` **[new]**
+## 6. `EventQueue` and `WidgetEvent`
 
 ```java
 public sealed interface WidgetEvent permits
@@ -187,7 +191,7 @@ nothing else. There is one implementation.
 exist from M4 because they make the event-driven widgets testable
 without threads.
 
-## 7. `KeyListener` **[new]**
+## 7. `KeyListener`
 
 `KeyListener` **decodes**. It does **not** route, and it does **not**
 call widgets. One daemon thread, started when raw mode is entered
@@ -219,17 +223,14 @@ registered); exited in a `finally` when neither holds or the canvas goes
 down. Exiting raw mode is one of the CR-27 restore paths and needs its
 own test on every platform row.
 
-## 8. `AnimationLoop` **[reinterpret]**
+## 8. `AnimationLoop`
 
-Same thread and timing rules (one platform daemon thread, 12.5 fps
-default, 1–30 range). Its tick body becomes steps 1–4 of §3 plus the
-existing stale-partial-line flush, and each `Tick` carries the **elapsed
-time since the previous tick** — the input every time-based widget uses
-(CV-90). `redrawNow()` keeps its role of forcing an off-cycle frame on
-resize, scrollback write, completion and explicit request; multiple
-requests between ticks coalesce to one frame.
+One platform daemon thread, 12.5 fps default, 1–30 range. Its tick body
+is steps 1–4 of §3 plus the stale-partial-line flush. `redrawNow()`
+forces an off-cycle frame on resize, scrollback write, completion and
+explicit request; multiple requests between ticks coalesce to one frame.
 
-## 9. `Widget` contract **[new]**
+## 9. `Widget` contract
 
 ```java
 public interface Widget {
@@ -247,7 +248,7 @@ public interface Widget {
 the framework from the `Placement`, not by the widget). Widgets never see
 the canvas, the terminal, the cursor, or other widgets.
 
-## 10. `AsciiSprite` **[new]**
+## 10. `AsciiSprite`
 
 The canvas half of the bitmap part, and deliberately thin: an
 `AsciiAnimation` (BM-8), an elapsed-time accumulator, and play/pause
@@ -286,7 +287,7 @@ file yields zero `0x1B` bytes; that test exists and stays.
 
 ## 13. Testing surface
 
-- `internal.VirtualTerminal`: consumes the library's own bytes,
+- `canvas.internal.VirtualTerminal`: consumes the library's own bytes,
   interprets `CUP`, `EL`, `ED`, SGR, scrolling, and maintains a cell
   grid. Tests assert *what the user sees* — including that a `println`
   during a live canvas lands above it and the canvas is intact
@@ -294,7 +295,8 @@ file yields zero `0x1B` bytes; that test exists and stays.
 - `AsciiCanvas.dump()` for layout tests with no terminal.
 - `EventReplayer` for widget and sprite tests with no threads and no
   sleeping.
-- Source-scan tests for CR-21/22/23, CR-43 and CV-22 (no `\u001b`
-  outside `Ansi`, no `org.jline` outside `TerminalPort`, no non-ASCII
-  literal outside `Glyphs`, no `canvas` import inside `bitmap` or `text`,
-  no public method on `FancyConsole` returning a `Writer`).
+- Source-scan tests for CR-21/22/23 and CV-22, scoped to `src/main`: no
+  `\u001b` outside `Ansi`, no `org.jline` outside `TerminalPort`, no
+  non-ASCII literal outside `Glyphs`, no public method on
+  `FancyConsole` returning a `Writer`. CR-43 needs no scan — a `canvas`
+  import inside `bitmap` or `text` does not compile (NFR-9b).

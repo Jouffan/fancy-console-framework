@@ -19,27 +19,26 @@ missing dependency. Overlay paint is Cell composite (BM-13, CV-94), not
 a third interchange. Cross-part rules live in core §2.7 (CR-41…CR-44)
 and the map.
 
-This branch was written against **v2** (three tiers, pin/strip). A class
-that compiles and has tests is not therefore correct. Keep / reinterpret /
-obsolete is `doc/architecture.md` §6. The pin/strip engine is being
-replaced; stream capture, `TerminalPort`, capabilities and the static
-widgets are the parts to keep.
-
-This workspace may contain **docs only**. Do not invent a source tree.
+This repository is **docs only — there is no source tree yet**, and
+nothing is implemented. Do not claim a milestone is done because a
+requirement reads as though it describes existing behaviour. A v2
+prototype existed on an earlier branch and is **not** merged here;
+`doc/architecture.md` §6 records what it taught us, and nothing more.
+Build from the specification, starting at M0.
 
 ## Never break
 
 | ID | Rule |
 |---|---|
-| CR-21 | Only one class emits escape sequences (`internal.Ansi`) |
-| CR-22 | Only one class touches JLine (`internal.TerminalPort`) |
-| CR-23 | Only one class contains non-ASCII literals (`internal.Glyphs`) |
+| CR-21 | Only one class emits escape sequences (`core.internal.Ansi`) |
+| CR-22 | Only one class touches JLine (`canvas.internal.TerminalPort`) |
+| CR-23 | Only one class contains non-ASCII literals (`core.internal.Glyphs`) |
 | CR-41 | `Cell` is a **core** type. Bitmap and canvas share it; neither defines its own |
 | CR-42 | `StyledText` / `Renderable` are the **print** interchange. Overlay paint is Cell composite (CV-94) |
-| CR-43 | Dependency graph is acyclic and fixed: core ← text, core ← bitmap, core ← canvas, bitmap ← canvas |
+| CR-43 | Dependency graph is acyclic and fixed: core ← text, core ← bitmap, core ← canvas, bitmap ← canvas. Enforced by the reactor — an illegal edge does not compile |
 | CR-44 | Core owns `Renderable → String`. Text is a facade over it, not the owner |
 | CV-22 | No public path to the terminal writer; no caller-written escapes |
-| NFR-12 | All static mutable state lives in `ConsoleRuntime` |
+| NFR-12 | All static mutable state lives in `ConsoleRuntime` (core), behind an **opaque slot** — it never names another part's type |
 | CR-24 | No render path throws. `Ctrl-C` → `Cancelled` and `.art` loading are **not** render paths |
 | CR-40 | One colour type: `dev.consolekit.core.Color`. No `AsciiColor` |
 | TX-2 | Text mode never opens a terminal, loads native code, or starts a thread |
@@ -47,47 +46,54 @@ This workspace may contain **docs only**. Do not invent a source tree.
 | CV-47 | A key is offered until handled (focus → app → built-ins). Never broadcast |
 | CV-4 | One canvas per process |
 
-Enforced by NFR-10 source-scan / behavioural tests, not by convention.
-JPMS: `module-info.java`, module `dev.consolekit`; do **not** export
-`dev.consolekit.internal`.
+CR-43 is enforced by the reactor. CR-21, CR-22, CR-23 and CV-22 are
+enforced by NFR-10 scan / behavioural tests — not by convention. Scope
+the CR-23 scan to `src/main`; the CR-10 fixtures are non-ASCII on
+purpose.
+
+JPMS: one `module-info.java` per artefact; never export a `*.internal`
+package; no package shared by two artefacts.
 
 ## Build and test
 
 - JDK **21**, Maven, **no preview** (NFR-9). Do not use `IO.println`.
-- Runtime dependency: JLine only. No jansi, no ncurses (NFR-8).
+- Four artefacts: `consolekit-core`, `consolekit-text`,
+  `consolekit-bitmap`, `consolekit-canvas`.
+- Runtime dependency: **JLine in `consolekit-canvas` only** —
+  `jline-terminal` + `jline-terminal-jni`. Not FFM (needs JDK 22+), not
+  JNA (removed in JLine 4). No jansi, no ncurses (NFR-8). Adding a
+  dependency to core, text or bitmap is a defect.
 - `mvn verify` is the gate. A milestone also needs a human visual check
   of the relevant demo on a real terminal (NFR-18).
 - Tests: JUnit 5. Goldens: `src/test/resources/golden/`, UTF-8, `\n`
   (NFR-13). Canvas layouts: `AsciiCanvas.dump()`, no terminal.
-  What-the-user-sees: `internal.VirtualTerminal`.
+  What-the-user-sees: `canvas.internal.VirtualTerminal`.
 - NFR-5 (no alloc per frame) lives in the canvas part and applies to
   **layout / paint / diff / flush only**. The event queue may allocate.
   `cellsAt` allocation is open question 6 (M4b).
 
 ## Current work
 
-Next shippable slice: **M1b** — `Styler`, `Snippets`, `Color` named
-constants (TX-10…TX-15, CR-40). No engine change.
+Next shippable slice: **M0** — the build skeleton, `module-info.java`,
+and the NFR-10 structural scan tests. Nothing exists yet; M0 is what
+makes every later milestone checkable.
 
-Then the migration order in `doc/architecture.md` §5, in order. Do not
-skip.
+Then the order in `doc/architecture.md` §5. Do not skip.
 
 | Step | What | Notes |
 |---|---|---|
-| M1b | `Color` constants, `Styler`, `Snippets` | now |
-| M3 | canvas engine, `place` / `update` / `focus` / `remove` | no `send` yet. CV-9 and CV-13 are **new**. Create `core.Cell` here (CR-41) |
-| M3b | package-scan test for the CR-43 layering | cheap now, archaeology later |
+| M0 | pom, `module-info.java`, structural scan tests | CR-21, CR-22, CR-23, CR-43, CV-22. Scope CR-23 to `src/main` |
+| M1 | core model, capabilities, `Text` | CR-1…CR-20, TX-1…TX-9 |
+| M1b | `Color` constants, `Styler`, `Snippets` | TX-10…TX-15, CR-40 |
+| M2 | static `Renderable` catalogue | CR-18 |
+| M3 | canvas engine, `place` / `update` / `focus` / `remove` | no `send` yet. Create `core.Cell` here (CR-41) |
 | M4 | `WidgetId`, `WidgetEvent`, `handle.send`, catalogue | `Tick` carries elapsed time |
-| M4b | bitmap part: `AsciiBitmap`, `Palette`, `AsciiAnimation`, `cellsAt` (BM-1…BM-13, AF-1…AF-8) | needs core only; still-bitmap half testable with no canvas |
+| M4b | bitmap part: `AsciiBitmap`, `Palette`, `AsciiAnimation`, `cellsAt` (BM-1…BM-13, AF-1…AF-8) | needs core only; testable with no canvas |
 | M4c | `AsciiSprite` (CV-90…CV-94) | needs M4 `Tick` + M4b. Clock + CV-94 composite, not `blit(Renderable)` |
 | M5 | content-side encoding CR-29…CR-36; CR-39 in canvas tests | before keys (CR-37) |
 | NFR-19 | conhost canvas rows of NFR-14 | **start-gate**, not a milestone. Before M6 **starts**. Not M6-done, not M7 |
 | M6 | `KeyListener`, focus slot, CV-47 | built-ins `Ctrl-C` and `Ctrl-L` only |
 | M7 | remaining NFR-14 rows, including macOS | does not relax NFR-19 |
-
-Obsolete pin types (`AsciiWidget`, `PinHandle`, `PinContext`,
-`PinStack`, `FancyConsole.pin`) stay compiling until `place` lands,
-then delete. Do not delete them up front.
 
 ## Do not add
 
@@ -161,24 +167,32 @@ own visualisation. That is not a form.
   per-paint callback), and **palette cycling** (BM-10) animates an
   N-colour pattern from one frame. Cells store the slot, not the
   resolved `Style`.
-- **One JPMS module** `dev.consolekit`, four documentary parts. The
-  parts are packages, not artefacts (requirements map §8).
+- **Four artefacts, four modules** (NFR-9b): `consolekit-core`,
+  `consolekit-text`, `consolekit-bitmap`, `consolekit-canvas`. The
+  reactor enforces CR-43. **JLine is a canvas dependency only** — core,
+  text and bitmap have no third-party dependency, which is why
+  `TerminalPort` lives in canvas. No split packages.
 
 ## Still open (ask, don't guess)
 
 1. Event-queue bound and whether `LogMessage` is droppable (CV-43).
 2. Nested widgets (CV-32) — deferred until a widget actually needs them.
 3. Whether `Snippets.print…` (TX-14) stays.
-4. Whether the four parts ever become separate artefacts — not now.
+4. *(closed)* Four separate artefacts — yes, decided (NFR-9b).
 5. The `.art` size/dimension/frame caps (AF-6) — pick them at M4b.
 6. Whether `cellsAt` may allocate, or must fill a caller-supplied
    buffer — pick at M4b. Do not pretend paint is a `Renderable` blit.
 
 ## Packages
 
-See `doc/architecture.md` §1. Public: `dev.consolekit`, `.core`,
-`.render`, `.widget`, `.bitmap`, `.canvas`, `.canvas.widget`, `.event`,
-`.input`. Internal, not exported: `dev.consolekit.internal`.
+See `doc/architecture.md` §1. One module per artefact:
+
+| Artefact | Module | Exported | Not exported |
+|---|---|---|---|
+| `consolekit-core` | `dev.consolekit.core` | `.core`, `.core.render`, `.core.widget` | `.core.internal` |
+| `consolekit-text` | `dev.consolekit.text` | `.text` | — |
+| `consolekit-bitmap` | `dev.consolekit.bitmap` | `.bitmap` | `.bitmap.internal` |
+| `consolekit-canvas` | `dev.consolekit.canvas` | `.canvas`, `.canvas.widget`, `.canvas.event`, `.canvas.input` | `.canvas.internal` |
 
 Allowed edges (CR-43): core ← text, core ← bitmap, core ← canvas,
 bitmap ← canvas. Nothing else.

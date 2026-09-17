@@ -157,7 +157,9 @@ mis-measured string shifts every cell to its right.
   produce inconsistent output.
 - **CR-15** A standalone diagnostic (`Probe`) MUST print the full resolved
   environment plus a colour and glyph test card, in pure ASCII so it
-  survives any terminal.
+  survives any terminal. It MUST report only what core resolved. Dumping
+  an `.art` file is a *bitmap* diagnostic (AF-7) and MUST NOT be reached
+  from here, because core cannot depend on the bitmap part (CR-43).
 
 ### 2.5 The shared render contract
 
@@ -247,21 +249,36 @@ business.
   being immutable; canvas mode is one render thread fed by one queue,
   with the key listener as a producer. Widgets updated from other threads
   MUST NOT be able to tear a frame.
-- **NFR-8** Runtime dependencies MUST be limited to JLine. No jansi,
-  ever. No ncurses. Source and bytecode target **JDK 21**. The build is
+- **NFR-8** Runtime dependencies MUST be limited to JLine: exactly
+  `jline-terminal` plus the **JNI** provider `jline-terminal-jni`. The
+  FFM provider MUST NOT be used — it needs JDK 22+ and this library
+  targets JDK 21. The JNA provider MUST NOT be used — it was removed in
+  JLine 4.0.0. No jansi, ever. No ncurses. Source and bytecode target
+  **JDK 21**. The build is
   Maven (`mvn verify`).
 - **NFR-9** The build MUST NOT require preview features.
-- **NFR-9b** The artefact is a real JPMS module `dev.consolekit` with
-  `module-info.java`. `dev.consolekit.internal` MUST NOT be exported;
-  the NFR-10 source-scan tests back that, they do not replace it.
-- **NFR-10** Each structural invariant (CR-21 through CR-23, CR-43,
-  CV-22) MUST be enforced by a test — a source scan or a behavioural
-  test — not by convention.
+- **NFR-9b** Each part MUST ship as its own Maven artefact and its own
+  JPMS module with a `module-info.java`: `consolekit-core` /
+  `dev.consolekit.core`, `consolekit-text` / `dev.consolekit.text`,
+  `consolekit-bitmap` / `dev.consolekit.bitmap`, `consolekit-canvas` /
+  `dev.consolekit.canvas`. Each module MUST keep one non-exported
+  `*.internal` package. There MUST NOT be a package shared by two
+  artefacts — split packages are illegal on the module path and would
+  also hide CR-43 violations.
+- **NFR-10** Structural invariants MUST be enforced, not assumed. CR-43
+  is enforced by the reactor and `module-info.java`: an illegal edge
+  MUST fail to compile. The invariants the compiler cannot express —
+  CR-21, CR-22, CR-23, CV-22 — MUST each be enforced by a source-scan or
+  behavioural test. The CR-23 scan MUST be scoped to `src/main`, since
+  the CR-10 fixture strings are deliberately non-ASCII test data.
 - **NFR-11** No rendered line MAY exceed the available width as measured
   per CR-6, in any part, with any of the CR-10 fixture strings.
 - **NFR-12** `\n` line endings. Tests are JUnit 5. Golden files live
   under `src/test/resources/golden/`. Process-wide mutable state MUST be
-  confined to one documented runtime holder (`ConsoleRuntime`).
+  confined to one documented runtime holder (`ConsoleRuntime`) in core.
+  That holder MUST expose an **opaque slot** rather than a typed field:
+  it MUST NOT name a type from any other part, or core would depend on
+  a consumer and break CR-43.
 - **NFR-13** Golden-file tests MUST cover at least truecolor/FULL,
   ANSI256, ANSI16/CP437, and NONE/redirected, read with explicit UTF-8 and
   normalised line endings.
@@ -288,15 +305,15 @@ business.
 ## 4. What the other parts require of core
 
 Core is designed against this table and nothing else. If a part needs
-something n
+something not listed here, the table changes first — in this document,
+with an ID — and the part follows.
+
+| Consumer | What it needs from core | Pinned by |
+|---|---|---|
 | text | `Color`, `Style`, `Theme`, `Capabilities`, escape emission, the "return the string unchanged when escapes can't render" rule | CR-1…CR-5, CR-40, CR-44 |
 | bitmap | `Cell` with absent channels, `Style`, glyph tier + substitution, grapheme width, `Renderable` + `StyledText` | CR-41, CR-6…CR-10, CR-29…CR-31, CR-42 |
 | bitmap | a print path that needs no terminal ownership | CR-44 |
-| canvas | `Cell`, `RenderContext` with a per-frame size, `Renderable` to blit, capability degradation, restore-path rules | CR-41, CR-17, CR-42, CR-26, CR-27 |
-| canvas | the bitmap model, to wrap as a widget | BM-8, BM-9, BM-10 |
-
-Two consequences worth stating outright, because they are the reason the
-split is cheap:optional caller-filled size, `Renderable` to print/blit as catalogue content, capability degradation, restore-path rules | CR-41, CR-17, CR-42, CR-26, CR-27 |
+| canvas | `Cell`, `RenderContext` with optional caller-filled size, `Renderable` to print/blit as catalogue content, capability degradation, restore-path rules | CR-41, CR-17, CR-42, CR-26, CR-27 |
 | canvas | the bitmap model, to wrap as a widget | BM-8, BM-9, BM-10, BM-13 |
 
 Two consequences worth stating outright, because they are the reason the
@@ -308,4 +325,4 @@ split is cheap:
    consumer.
 2. **Animation is not a core concept.** Core has no clock, no thread and
    no tick. Bitmap supplies pure `frameAt` / `cellsAt(elapsed)`; canvas
-   supplies the thing that has a clock
+   supplies the thing that has a clock. Neither leaks into core.
