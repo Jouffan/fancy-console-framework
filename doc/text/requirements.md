@@ -1,7 +1,7 @@
 # ConsoleKit Text — Requirements (`TX`)
 
-Part 2 of 4. Depends on [core](../core/requirements.md) only. See
-[the map](../requirements.md).
+Part 2 of 4. Package prefix `dev.consolekit.text`. Depends on
+[core](../core/requirements.md) only. See [the map](../requirements.md).
 
 **Colour a string.** No lifecycle, no setup, no terminal ownership, no
 threads. Three surfaces over one implementation: static inline helpers
@@ -22,15 +22,17 @@ directly and MUST NOT depend on this part (CR-43).
   returning a plain `String` with escapes already applied.
 - **TX-2** Text mode MUST NOT open a terminal, load native code, or start
   a thread — ever, under any code path. It MAY read the resolved
-  capabilities (colour depth, glyph tier, and the probe-time width from
-  TX-15) because those come from the JDK and environment, not from JLine.
-  Discovering width via JLine is a defect.
+  capabilities (colour depth, glyph tier) and the ambient width (CR-45)
+  because those come from the JDK and environment, not from a terminal
+  library. Discovering width via JLine is a defect — and, since JLine is
+  referenced only under `dev.consolekit.canvas` (CR-22), also a layering
+  failure the CR-43 scan catches.
 - **TX-3** When the environment can't render escapes, text mode MUST
   return the string unchanged rather than emitting anything.
 - **TX-4** Text mode MUST NOT measure, wrap, pad or align caller text, so
   its output is safe to embed inside canvas-mode output. (Snippets that
-  need a width take it as an argument or read the detected terminal width
-  from capabilities; they do not measure the caller's strings.)
+  need a width take it as an argument or use the ambient width; they do
+  not measure the caller's strings.)
 - **TX-5** Each styled span MUST be closed with its specific SGR "off"
   code, never a blanket reset, so surrounding styles survive nesting.
 - **TX-6** The known consequence of TX-5 — nested spans of the same
@@ -81,12 +83,11 @@ directly and MUST NOT depend on this part (CR-43).
   newline to `System.out`. These are the *only* text-mode methods that
   print, and they MUST go through `System.out` exactly as the caller
   would, never through a terminal port.
-- **TX-15** Snippets that need a width and are not given one MUST resolve
-  it, in this order: the `COLUMNS` environment variable if it parses as a
-  positive integer; else 80. The library MUST NOT open a terminal or call
-  JLine to discover width (TX-2). Many interactive shells will hit the
-  80 fallback because bash does not export `COLUMNS` to child processes;
-  that is not a defect and MUST NOT be "fixed" by reaching for JLine.
+- **TX-15** Snippets that need a width and are not given one MUST use the
+  core ambient width (CR-45): `COLUMNS` if it parses as a positive
+  integer, else 80. The 80 fallback in shells that do not export
+  `COLUMNS` is not a defect and MUST NOT be "fixed" by reaching for a
+  terminal library (TX-2).
 
 ---
 
@@ -96,8 +97,8 @@ Illustrative. Method names that are already required (`Text.red`,
 `Styler.of`, `Snippets.line`, …) are frozen; surrounding glue is not.
 
 ```java
-import static dev.consolekit.Text.red;
-import static dev.consolekit.Text.success;
+import static dev.consolekit.text.Text.red;
+import static dev.consolekit.text.Text.success;
 
 System.out.println(success("done") + " in " + red("12ms"));
 ```
@@ -123,7 +124,7 @@ Table t = Table.of(
         List.of("file", "size"),
         List.of(List.of("příliš žluťoučký kůň.dat", "12K"),
                 List.of("encode.mp4", "1.1G")));
-System.out.println(t);                    // ambient context
+System.out.println(t);                    // toString → Rendering, ambient context
 console.print(t);                         // canvas: into scrollback
 surface.blit(t);                          // canvas: catalogue blit (CV-36)
 
