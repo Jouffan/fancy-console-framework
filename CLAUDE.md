@@ -100,9 +100,8 @@ mvn -q verify -Dconsolekit.golden.update=true  # regenerate goldens — see belo
   is ambiguous.
 - A change seems to need a new edge in CR-43. It is almost always a
   missing `Renderable` (print) or a missing core rule (map §3).
-- Anything listed in `doc/requirements.md` §9 **Open questions** — today:
-  the event-queue bound, nested widgets, whether `Snippets.print…`
-  stays, separate artefacts, `SetContent` over a pipe.
+- Anything listed in `doc/requirements.md` §9 **Open questions** that does
+  not yet have a default below.
 - You are about to reopen something in `doc/requirements.md` §8
   **Decisions**.
 - **End of a milestone.** `mvn verify` green is necessary, not
@@ -110,6 +109,19 @@ mvn -q verify -Dconsolekit.golden.update=true  # regenerate goldens — see belo
   and NFR-17 rows need a human on that platform. Report what to run and
   what to look for; do not mark the milestone done yourself.
 - **NFR-19:** do not start M6 until a human confirms the conhost rows.
+
+## Defaults picked for open questions
+
+These were chosen before implementation started. Do not change without
+asking.
+
+| Decided before | What | Default |
+|---|---|---|
+| M3 | Minimum canvas size (CV-8) | **20 × 3** |
+| M3 | GraphemeTable intern bound | **4096 clusters**; replacement past bound |
+| M3 | Stale-partial-line flush timeout (CV-15) | **50 ms** |
+| M4 | Event queue bound (CV-43) | **1024 envelopes** |
+| M1b | Whether `Snippets.print…` ships (TX-14) | **still open** — stop and ask |
 
 ## Current work
 
