@@ -138,17 +138,30 @@ cell-composite door (CR-46, CV-94), not a third interchange.
 
 | # | Deliverable | Needs |
 |---|---|---|
-| M1 | Core: model, capabilities, `Color` constants + `DEFAULT`, `Cell`, `CellBuffer`, `Rendering`, ambient width, **CR-43 package-scan test** (CR-1…CR-27, CR-40…CR-46 glyph side, NFR-10) | — |
-| M1b | Text: `Text`, `Styler`, `Snippets` (TX-1…TX-15) | M1 |
-| M2 | Static `Renderable` catalogue (CR-18) | M1 |
+| M1 | Core: model, capabilities, `Color` constants + `DEFAULT`, `Cell`, `CellBuffer`, `Rendering`, ambient width, charset resolution, **CR-43 package-scan test** (CR-1…CR-14, CR-16, CR-17, CR-21…CR-25, CR-28, CR-40…CR-46, NFR-10). NFR-18 demo: `tools.ColourCard` | — |
+| M1b | Text: `Text`, `Styler`, `Snippets` (TX-1…TX-15). SGR-reset hook (TX-7) is the first restore path (CR-26 / CR-27 for SGR only) | M1 |
+| M2 | Static `Renderable` catalogue (CR-18…CR-20). `Probe` (CR-15, CR-38) | M1 |
 | M2b | Bitmap part: `Palette`, `AsciiBitmap`, `AsciiAnimation` (BM-1…BM-15) and the `.art` codec (AF-1…AF-8) | M1 only — may be built in parallel with M3 |
-| M3 | Canvas engine: buffers, layout, blit, composite, flush diff, canvas-above-scrollback routing, stream capture, restore paths incl. SIGINT, virtual terminal, `place` / `focus` / `remove`, engine `Tick`, and the **minimal** event path (`handle.send`, `SetText`) (CV-1…CV-38, CV-39, CV-44, CV-53…CV-63, CV-94…CV-96) | M1, M2 |
+| M3 | Canvas engine: buffers, layout, blit, composite, flush diff, canvas-above-scrollback routing, stream capture, restore paths incl. SIGINT (remainder of CR-26, CR-27), virtual terminal, `place` / `focus` / `remove`, engine `Tick`, and the **minimal** event path (`handle.send`, `SetText`) (CV-1…CV-38, CV-39, CV-44, CV-53…CV-63, CV-94…CV-96) | M1, M2 |
 | M4 | Full event vocabulary, coalescing and overflow policy, `EventRecorder` / `EventReplayer`, the event-driven widget catalogue (CV-40…CV-43, CV-65, CV-66) | M3 |
 | M4c | `AsciiSprite` (CV-90…CV-93) | M2b, M4 |
 | M5 | Content-side encoding robustness (CR-29…CR-36); BM-6's substitution half lands here. Cross-part fixture CR-39 lives in canvas tests | M3 |
 | — | **NFR-19 start-gate (not a milestone):** conhost rows of NFR-14 verified for canvas mode **before M6 starts** | M3 |
 | M6 | `KeyListener`, single-consumer forwarding, focus slot (CV-45…CV-52, CV-68, CV-69). No form widgets | M5, NFR-19 |
 | M7 | Remaining NFR-14 platform rows (`SUPPORTED-TERMINALS.md`), including macOS | M6 |
+
+M1 is the core *library*, not every CR-numbered item in the core
+document:
+
+- **In M1:** CR-1…CR-14, CR-16, CR-17, CR-21…CR-25, CR-28, CR-40…CR-46,
+  NFR-10, and the glyph side of Encoding (CR-7 probing against the
+  console charset). CR-40…CR-46 are in full — "glyph side" applies only
+  to Encoding. CR-28 is in M1 because CR-7 probes glyphs against the
+  console charset and CR-12 records that charset in `Capabilities`.
+- **Not M1:** CR-15 and CR-38 go with `Probe` (M2); CR-18…CR-20 are the
+  catalogue (M2); CR-26 and CR-27 wait for the first part that changes
+  terminal state (SGR hook in M1b, canvas restore in M3). CR-29…CR-36
+  stay M5; CR-37 stays with keys (M6).
 
 M5 is deliberately before M6: keyboard decoding (CR-37) depends on the
 charset resolution M5 introduces. v4's M3b is folded into M1 (the scan is
@@ -183,7 +196,7 @@ and re-verified against v5, not assumed correct.
 | Widget catalogue | CV-64 … CV-67 | v2 static done; canvas widgets not started |
 | Sprites | CV-90 … CV-93 | **not started** |
 | Canvas NFRs | NFR-3 … NFR-6, NFR-19 | live in the canvas part |
-| Platform verification | NFR-14 … NFR-18 | 1 of 10 rows (v2) |
+| Platform verification | NFR-14 … NFR-18 | 0 of 16 rows verified (prefilled in `SUPPORTED-TERMINALS.md`) |
 
 ## 6. ID history
 
@@ -220,6 +233,19 @@ what changed.
 | — → CV-96 | widget attach lifecycle; object API lives on the widget |
 | NFR-5 | restated against cached paint |
 | M3b, M4b | folded into M1; renamed M2b |
+
+### Clarifications before M1
+
+No IDs were changed. Scope and scan wording were tightened so M1 is
+not self-contradictory:
+
+| ID | Clarification |
+|---|---|
+| M1 | ID list restated in §4; CR-28 in M1; CR-15/38, CR-18…20, CR-26/27 out of M1 |
+| CR-43 / NFR-10 | Scan is type references, not merely imports |
+| CR-46 | Clip is destination-space; no partial wide-cell writes |
+| TX-14 | `print…` twins ship |
+| TX-7 / NFR-12 | SGR hook is registered on `ConsoleRuntime` |
 
 ### v3 → v4
 
@@ -309,6 +335,16 @@ Each part restates its own; these apply everywhere.
 - **Percentage leftover** goes to the last percentage-or-fill widget on
   that axis (CV-26).
 - **Tests:** JUnit 5; goldens at `src/test/resources/golden/`.
+- **`Snippets.print…` ships** (TX-14). The twins are the only text-mode
+  print methods and go through `System.out`.
+- **`CellBuffer` clip is destination-space.** A width-2 glyph is written
+  only when both destination columns are inside the clip and the buffer;
+  `put` in the last column skips. Blanking the other half of an existing
+  wide cell is not clip-limited.
+- **The CR-43 scan checks type references**, including fully-qualified
+  names, not merely `import` lines.
+- **The SGR-reset shutdown hook lives on `ConsoleRuntime`** (TX-7,
+  NFR-12).
 
 ## 9. Open questions
 
@@ -317,7 +353,8 @@ Each part restates its own; these apply everywhere.
    numeric bound is open. Pick it when M4 starts.
 2. **Nested widgets (CV-32).** Deferred until a widget actually needs
    them.
-3. **Should `Snippets.print…` exist at all** (TX-14)?
+3. *(closed)* **Should `Snippets.print…` exist at all** (TX-14)? Yes;
+   they ship as specified.
 4. **Do the parts ever become separate artefacts?** Not now (§8).
    Revisit only if someone genuinely wants the bitmap part without JLine
    on the classpath. v5 makes that mechanical: JLine is referenced only

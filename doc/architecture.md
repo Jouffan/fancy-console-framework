@@ -16,6 +16,9 @@ One document per part; this one holds only the seams.
 
 There is exactly one JPMS module, `dev.consolekit`, with
 `module-info.java`. No `*.internal` package is exported.
+`module-info.java` exports a package only once that package contains a
+class; javac rejects empty packages. Add the export in the same commit
+as the first class.
 
 ```
 dev.consolekit.core              Color, Style, Attr, Cell, CellBuffer,
@@ -67,10 +70,15 @@ tools →  everything    (and nothing → tools)
 
 One package-scan rule over prefixes (NFR-10), shipped with M1:
 
-- a class under `dev.consolekit.X` imports only `dev.consolekit.X..`,
+- a class under `dev.consolekit.X` may **reference** (import or
+  fully-qualified name) only `dev.consolekit.X..`,
   `dev.consolekit.core..`, and — canvas only — `dev.consolekit.bitmap`
   (not `bitmap.internal`);
 - `org.jline` appears only in `canvas.internal.TerminalPort` (CR-22).
+
+The scan inspects type references in the compilation unit, not merely
+`import` lines, so a fully-qualified name cannot bypass it. Comments
+and string literals are not type references.
 
 The single-class monopolies: `core.internal.Ansi` is the only escape
 emitter (CR-21), `canvas.internal.TerminalPort` the only JLine toucher
@@ -139,13 +147,24 @@ sees also end with a human running the named demo (NFR-18).
 
 1. **M1 — core.** `Color` (+ constants, `DEFAULT`), `Style`, `Cell`,
    `CellBuffer` + compositor, `StyledText`, `Renderable`, `Rendering`,
-   ambient width, `Capabilities`, `ConsoleRuntime` with the session
-   slot, `Ansi`, `Glyphs`, `TextWidth`, the glyph side of `Encoding`.
-   **The CR-43 scan test, the three monopoly scans and the `toString`
-   delegation test ship here**, while there is one prefix to check.
-   Tests first (NFR-2).
-2. **M1b — text.** `Text`, `Styler`, `Snippets`.
-3. **M2 — static catalogue** under `core.widget`.
+   ambient width, `Capabilities` including charset (CR-28),
+   `ConsoleRuntime` with the session slot, `Ansi`, `Glyphs`,
+   `TextWidth`, the glyph side of `Encoding` (CR-7 against the console
+   charset). **The CR-43 scan test (type references, not merely
+   imports), the three monopoly scans and the `toString` delegation
+   test ship here**, while there is one prefix to check. Tests first
+   (NFR-2). Catalogue (CR-18…CR-20) is M2; Probe (CR-15, CR-38) is M2;
+   restore paths (CR-26, CR-27) start at the SGR hook in M1b.
+   NFR-18 demo: `dev.consolekit.tools.ColourCard` — a colour and glyph
+   card printed through `Rendering.toString`. Look for: sixteen named
+   colours, `Color.DEFAULT` matching the terminal default, glyph tier
+   (box drawing on FULL, ASCII fallback otherwise), the CR-10 fixture,
+   no line overflowing the width.
+2. **M1b — text.** `Text`, `Styler`, `Snippets` (including TX-14
+   `print…` twins). The SGR-reset shutdown hook (TX-7) lives on
+   `ConsoleRuntime` (NFR-12) and is the first CR-26/CR-27 restore path.
+3. **M2 — static catalogue** under `core.widget` (CR-18…CR-20).
+   `Probe` (CR-15, CR-38) ships here.
 4. **M2b — bitmap**, in the order of bitmap/architecture §8. Needs core
    only; may proceed in parallel with step 5.
 5. **M3 — canvas engine.** `TerminalPort`, `CanvasSession`, `Layout`,

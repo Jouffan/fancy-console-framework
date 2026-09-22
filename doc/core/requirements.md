@@ -234,11 +234,21 @@ each other.
   - Bitmap and canvas both use this type; neither MAY define its own.
 - **CR-46** `CellBuffer` MUST be a **core** type: a mutable, fixed-size
   `w × h` grid of cells, and the **only** implementation of compositing.
-  - `composite(src, x, y, clip…)` applies CR-41 per channel, clipped. No
+  - `composite(src, x, y, clipX, clipY, clipW, clipH)` applies CR-41 per
+    channel. Clip coordinates are in **destination space**: a destination
+    cell is written only if it lies inside the clip rectangle and inside
+    the buffer. The source is placed at `(x, y)` in the destination. No
     other class MAY implement the absence rule.
   - A wide grapheme occupies its cell plus a continuation marker in the
-    next column (CR-35). Writing over either half of a wide cell MUST
-    blank the other half.
+    next column (CR-35). A width-2 source glyph is written only when
+    **both** destination columns lie inside the clip and inside the
+    buffer; otherwise neither half is written. `put` of a width-2 glyph
+    that has no room for its continuation (last column, or a 1-wide
+    buffer) is the same skip — not a throw, not a split, not a
+    one-column write.
+  - Writing over either half of an existing wide destination cell MUST
+    blank the other half, **even if that other half lies outside the
+    clip**, so a wide cell is never left split.
   - Steady-state `put`, `fill`, `clear` and `composite` MUST NOT
     allocate; the representation is therefore packed, not an array of
     `Cell` objects. `get(x, y)` returning a `Cell` value MAY allocate
@@ -260,15 +270,18 @@ each other.
   core ← text, core ← bitmap, core ← canvas, bitmap ← canvas.
   - **A part is a package prefix**: `dev.consolekit.core`, `.text`,
     `.bitmap`, `.canvas`, each including its sub-packages. A class under
-    one prefix MUST import only its own prefix, `dev.consolekit.core`,
-    and — for canvas only — `dev.consolekit.bitmap`.
+    one prefix MUST reference only its own prefix, `dev.consolekit.core`,
+    and — for canvas only — `dev.consolekit.bitmap`. Fully-qualified
+    names count as references; an `import` line is not the only thing
+    the scan looks at.
   - `X.internal` packages are importable only from within `X`, except
     `dev.consolekit.core.internal`, which every part may use. No
     `internal` package is exported (NFR-9b).
   - `dev.consolekit.tools` (`Probe`, demos) is an *application*: it may
     reference every part; nothing MUST reference it. Nothing MUST
     reference text except an application.
-  - A test MUST enforce all of this by package scan (NFR-10).
+  - A test MUST enforce all of this by source scan of type references,
+    not merely of import lines (NFR-10).
 - **CR-44** Core MUST own the path from a `Renderable` to characters on
   an ordinary stream, through one named API, `core.Rendering`:
   `toString(Renderable)`, `toString(Renderable, RenderContext)` and
@@ -307,8 +320,9 @@ business.
   listener as a producer. Widgets updated from other threads MUST NOT be
   able to tear a frame.
 - **NFR-8** Runtime dependencies MUST be limited to JLine. No jansi,
-  ever. No ncurses. Source and bytecode target **JDK 21**. The build is
-  Maven (`mvn verify`).
+  ever. No ncurses. Source and bytecode target **JDK 21**
+  (`--release 21` / `maven.compiler.release`). The build is Maven
+  (`mvn verify`).
 - **NFR-9** The build MUST NOT require preview features.
 - **NFR-9b** The artefact is a real JPMS module `dev.consolekit` with
   `module-info.java`. No `*.internal` package MUST be exported; the
@@ -316,7 +330,9 @@ business.
 - **NFR-10** Each structural invariant (CR-21 through CR-23, CR-43,
   CR-44's `toString` rule, and the canvas part's no-public-writer rule)
   MUST be enforced by a test — a source scan or a behavioural test — not
-  by convention.
+  by convention. The CR-43 scan MUST inspect type references (including
+  fully-qualified names), not only `import` declarations. Comments and
+  string literals are not type references.
 - **NFR-11** No rendered line MAY exceed the available width as measured
   per CR-6, in any part, with any of the CR-10 fixture strings.
 - **NFR-12** `\n` line endings. Tests are JUnit 5. Golden files live

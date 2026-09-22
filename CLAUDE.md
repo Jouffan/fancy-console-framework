@@ -35,7 +35,7 @@ If they are not, do not look for them and do not recreate v2 shapes.
 
 | ID | Rule |
 |---|---|
-| CR-43 | Edges are exactly core ← text, core ← bitmap, core ← canvas, bitmap ← canvas. A class under `dev.consolekit.X` imports only `X..`, `core..`, and (canvas only) `bitmap`. `tools` may import anything; nothing imports `tools` |
+| CR-43 | Edges are exactly core ← text, core ← bitmap, core ← canvas, bitmap ← canvas. A class under `dev.consolekit.X` **references** (import or fully-qualified name) only `X..`, `core..`, and (canvas only) `bitmap`. The scan checks type references, not merely import lines. `tools` may reference anything; nothing references `tools` |
 | CR-21 | Only `core.internal.Ansi` emits escape sequences |
 | CR-22 | Only `canvas.internal.TerminalPort` touches JLine. Core, text and bitmap never reference it |
 | CR-23 | Only `core.internal.Glyphs` contains non-ASCII literals |
@@ -52,7 +52,7 @@ If they are not, do not look for them and do not recreate v2 shapes.
 | CV-95 | `Tick` is synthesised by the loop, never queued, never sendable |
 | CV-47 / CV-49 | A key is offered focus → app → built-ins, never broadcast. `Ctrl-C` is a **signal**, not a key; there is no `Cancelled` |
 | NFR-12 | All static mutable state lives in `core.ConsoleRuntime`; other parts use its opaque session slot |
-| NFR-9b | No `*.internal` package is exported from `module-info.java` |
+| NFR-9b | No `*.internal` package is exported from `module-info.java`. Export a package only in the same commit as that package's first class — javac rejects empty packages |
 
 Structural rules are enforced by scan tests that ship in M1 (NFR-10). If
 one fails, the code is wrong, not the test.
@@ -85,7 +85,9 @@ mvn -q verify -Dconsolekit.golden.update=true  # regenerate goldens — see belo
 - Goldens: `src/test/resources/golden/`, UTF-8, `\n`. Never regenerate a
   golden to make a test pass. Regenerate only when the requirement
   changed, show the diff, and say so (NFR-12). An `.art` byte-golden diff
-  is a *format change* (art-format §3).
+  is a *format change* (art-format §3). Do not check in an empty golden;
+  the first `stripes.art` write is M2b under
+  `-Dconsolekit.golden.update=true` and is a reviewed first snapshot.
 - Assertion surfaces: `Rendering.toString` for print, `CellBuffer.dump()`
   for cells and layout, `toSource()` for bitmaps, `EventReplayer` for
   widgets and sprites, `VirtualTerminal` for what the user sees. **No
@@ -121,7 +123,7 @@ asking.
 | M3 | GraphemeTable intern bound | **4096 clusters**; replacement past bound |
 | M3 | Stale-partial-line flush timeout (CV-15) | **50 ms** |
 | M4 | Event queue bound (CV-43) | **1024 envelopes** |
-| M1b | Whether `Snippets.print…` ships (TX-14) | **still open** — stop and ask |
+| M1b | Whether `Snippets.print…` ships (TX-14) | **yes** — `print…` twins as specified |
 
 ## Current work
 
@@ -130,7 +132,13 @@ order; M2b (bitmap) may run in parallel with M3 (canvas engine) because
 it needs core only. Do not skip steps and do not start M4c before both
 M2b and M4.
 
+NFR-18 for M1: run `dev.consolekit.tools.ColourCard` on a real terminal.
+Look for: sixteen named colours, `Color.DEFAULT` matching the terminal
+default, glyph tier (box drawing on FULL, ASCII fallback otherwise),
+the CR-10 fixture, no line overflowing the width.
+
 Definition of done for every step: the requirement IDs listed for the
 milestone in `doc/requirements.md` §4 each have at least one test naming
 them; `mvn -q verify` is green; public types have Javadoc with a usage
-snippet (NFR-1); the human check above has been requested.
+snippet (NFR-1); the human check above has been requested. Do not mark
+the milestone done yourself.

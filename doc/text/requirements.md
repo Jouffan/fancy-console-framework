@@ -40,7 +40,9 @@ directly and MUST NOT depend on this part (CR-43).
   rather than silently fixed.
 - **TX-7** The first time text mode emits an escape it MUST register a
   shutdown hook resetting SGR on the original stdout, disableable by
-  environment variable.
+  the environment variable `CONSOLEKIT_NO_SGR_HOOK` (set to any value).
+  The hook and the "already registered" flag MUST live on
+  `ConsoleRuntime` (NFR-12), not as static mutable state in this part.
 
 ## 2. Static inline helpers (`Text`)
 

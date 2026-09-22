@@ -3,7 +3,8 @@
     "allow": [
       "Bash(mvn:*)",
       "Bash(git status)",
-      "Bash(git diff:*)"
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
     ]
   }
 }
