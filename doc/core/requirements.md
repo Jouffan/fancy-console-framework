@@ -333,6 +333,17 @@ business.
   by convention. The CR-43 scan MUST inspect type references (including
   fully-qualified names), not only `import` declarations. Comments and
   string literals are not type references.
+  - All source scans cover `src/main/java` only. Test sources (the
+    CR-10 fixture, goldens) are not scanned; main code that needs the
+    fixture (e.g. `ColourCard`) takes it from `core.internal.Glyphs`.
+  - The CR-21 and CR-23 scans inspect char, string and text-block
+    literals **after** decoding Unicode escapes (JLS §3.3) and escape
+    sequences (JLS §3.10.7), so `"\u2500"`, `"\u001b"` and `"\033"`
+    count. CR-21 also flags a `char` cast of the constant 27 in any
+    radix (`(char) 27`, `(char) 0x1B`, `(char) 033`). Escape bytes are
+    `ESC` (U+001B) and C1 `CSI` (U+009B).
+  - Comments (including Javadoc) are exempt from CR-21 and CR-23, so
+    Javadoc may show `─`.
 - **NFR-11** No rendered line MAY exceed the available width as measured
   per CR-6, in any part, with any of the CR-10 fixture strings.
 - **NFR-12** `\n` line endings. Tests are JUnit 5. Golden files live

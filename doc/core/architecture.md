@@ -133,7 +133,7 @@ rendered the spans are concatenated unchanged.
 
 `Ansi` is the only class containing escape bytes, `Glyphs` the only
 class containing non-ASCII literals (CR-21, CR-23). Source-scan tests
-enforce both, plus "no `org.jline` outside `dev.consolekit.canvas`"
+enforce both, plus "no `org.jline` outside `canvas.internal.TerminalPort`"
 (CR-22) and the CR-43 prefix rule (NFR-10).
 
 ## 5. `ConsoleRuntime` — the one static holder (NFR-12)

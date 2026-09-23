@@ -78,7 +78,9 @@ One package-scan rule over prefixes (NFR-10), shipped with M1:
 
 The scan inspects type references in the compilation unit, not merely
 `import` lines, so a fully-qualified name cannot bypass it. Comments
-and string literals are not type references.
+and string literals are not type references. What the CR-21 / CR-23
+literal scans count, and that all scans cover `src/main` only, is in
+NFR-10.
 
 The single-class monopolies: `core.internal.Ansi` is the only escape
 emitter (CR-21), `canvas.internal.TerminalPort` the only JLine toucher

@@ -120,7 +120,7 @@ asking.
 | Decided before | What | Default |
 |---|---|---|
 | M3 | Minimum canvas size (CV-8) | **20 × 3** |
-| M3 | GraphemeTable intern bound | **4096 clusters**; replacement past bound |
+| M1 | GraphemeTable intern bound | **4096 clusters**; replacement past bound |
 | M3 | Stale-partial-line flush timeout (CV-15) | **50 ms** |
 | M4 | Event queue bound (CV-43) | **1024 envelopes** |
 | M1b | Whether `Snippets.print…` ships (TX-14) | **yes** — `print…` twins as specified |
@@ -129,7 +129,8 @@ asking.
 
 **M1 — core**, per `doc/architecture.md` §5 step 1. Then the steps in
 order; M2b (bitmap) may run in parallel with M3 (canvas engine) because
-it needs core only. Do not skip steps and do not start M4c before both
+it needs core only. The M1 ID list is the **In M1** bullet of
+`doc/requirements.md` §4; scan scope and literal rules are NFR-10. Do not skip steps and do not start M4c before both
 M2b and M4.
 
 NFR-18 for M1: run `dev.consolekit.tools.ColourCard` on a real terminal.

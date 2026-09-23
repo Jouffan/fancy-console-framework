@@ -138,7 +138,7 @@ cell-composite door (CR-46, CV-94), not a third interchange.
 
 | # | Deliverable | Needs |
 |---|---|---|
-| M1 | Core: model, capabilities, `Color` constants + `DEFAULT`, `Cell`, `CellBuffer`, `Rendering`, ambient width, charset resolution, **CR-43 package-scan test** (CR-1…CR-14, CR-16, CR-17, CR-21…CR-25, CR-28, CR-40…CR-46, NFR-10). NFR-18 demo: `tools.ColourCard` | — |
+| M1 | Core: model, capabilities, `Color` constants + `DEFAULT`, `Cell`, `CellBuffer`, `Rendering`, ambient width, charset resolution, **CR-43 package-scan test** (CR-1…CR-14, CR-16, CR-17, CR-21…CR-25, CR-28, CR-40…CR-46, NFR-9b, NFR-10, NFR-12). NFR-18 demo: `tools.ColourCard` | — |
 | M1b | Text: `Text`, `Styler`, `Snippets` (TX-1…TX-15). SGR-reset hook (TX-7) is the first restore path (CR-26 / CR-27 for SGR only) | M1 |
 | M2 | Static `Renderable` catalogue (CR-18…CR-20). `Probe` (CR-15, CR-38) | M1 |
 | M2b | Bitmap part: `Palette`, `AsciiBitmap`, `AsciiAnimation` (BM-1…BM-15) and the `.art` codec (AF-1…AF-8) | M1 only — may be built in parallel with M3 |
@@ -154,7 +154,7 @@ M1 is the core *library*, not every CR-numbered item in the core
 document:
 
 - **In M1:** CR-1…CR-14, CR-16, CR-17, CR-21…CR-25, CR-28, CR-40…CR-46,
-  NFR-10, and the glyph side of Encoding (CR-7 probing against the
+  NFR-9b, NFR-10, NFR-12, and the glyph side of Encoding (CR-7 probing against the
   console charset). CR-40…CR-46 are in full — "glyph side" applies only
   to Encoding. CR-28 is in M1 because CR-7 probes glyphs against the
   console charset and CR-12 records that charset in `Capabilities`.
@@ -246,6 +246,10 @@ not self-contradictory:
 | CR-46 | Clip is destination-space; no partial wide-cell writes |
 | TX-14 | `print…` twins ship |
 | TX-7 / NFR-12 | SGR hook is registered on `ConsoleRuntime` |
+| M1 | NFR-9b and NFR-12 added (M1 ships `module-info` exports and `ConsoleRuntime`) |
+| CR-22 | Scan is class-level (`canvas.internal.TerminalPort`); core architecture §4 aligned |
+| CR-21 / CR-23 / NFR-10 | Scans cover `src/main` only; literals are checked after `\u` and escape-sequence decoding; comments exempt |
+| CR-46 | `GraphemeTable` bound (4096) is needed in M1, not M3 |
 | NFR-8 | JDK 21 → JDK 25 (`--release 25`); `IO.println` still unused |
 
 ### v3 → v4
