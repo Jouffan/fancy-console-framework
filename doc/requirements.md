@@ -246,6 +246,7 @@ not self-contradictory:
 | CR-46 | Clip is destination-space; no partial wide-cell writes |
 | TX-14 | `print…` twins ship |
 | TX-7 / NFR-12 | SGR hook is registered on `ConsoleRuntime` |
+| NFR-8 | JDK 21 → JDK 25 (`--release 25`); `IO.println` still unused |
 
 ### v3 → v4
 
@@ -326,7 +327,7 @@ Each part restates its own; these apply everywhere.
 - **Focus is a slot**, not a form navigator (CV-48).
 - **Content-derived sizing: yes**, optional per widget (CV-26).
 - **One colour type**, `Color` (CR-40).
-- **JDK 21, Maven, no preview.** `IO.println` is not used.
+- **JDK 25, Maven, no preview.** `IO.println` is not used.
 - **Terminal size for layout is per-frame** (CV-27); `Capabilities.size()`
   is probe-time, environment-derived and diagnostic only (CR-12).
 - **Ambient width** is `COLUMNS` then 80, never JLine (CR-45, TX-15).

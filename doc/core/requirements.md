@@ -320,9 +320,9 @@ business.
   listener as a producer. Widgets updated from other threads MUST NOT be
   able to tear a frame.
 - **NFR-8** Runtime dependencies MUST be limited to JLine. No jansi,
-  ever. No ncurses. Source and bytecode target **JDK 21**
-  (`--release 21` / `maven.compiler.release`). The build is Maven
-  (`mvn verify`).
+  ever. No ncurses. Source and bytecode target **JDK 25**
+  (`--release 25` / `maven.compiler.release`). The build requires a
+  JDK 25 or newer. The build is Maven (`mvn verify`).
 - **NFR-9** The build MUST NOT require preview features.
 - **NFR-9b** The artefact is a real JPMS module `dev.consolekit` with
   `module-info.java`. No `*.internal` package MUST be exported; the

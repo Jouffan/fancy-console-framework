@@ -1,6 +1,6 @@
 # ConsoleKit — agent notes
 
-Java 21 terminal UI library. One JPMS module `dev.consolekit`, four
+Java 25 terminal UI library. One JPMS module `dev.consolekit`, four
 parts, **a part is a package prefix**. The specification is the source of
 truth; this file is only the rules that must never be out of mind, plus
 where to read the rest. **It deliberately does not restate requirements
@@ -79,7 +79,7 @@ mvn -q -Dtest=CellBufferTest#compositeKeepsGlyph test
 mvn -q verify -Dconsolekit.golden.update=true  # regenerate goldens — see below
 ```
 
-- JDK **21**, Maven, **no preview** (NFR-9). Runtime dependency: JLine
+- JDK **25**, Maven, **no preview** (NFR-9). Runtime dependency: JLine
   only (NFR-8).
 - Tests are JUnit 5. **Core is tests-first** (NFR-2).
 - Goldens: `src/test/resources/golden/`, UTF-8, `\n`. Never regenerate a
