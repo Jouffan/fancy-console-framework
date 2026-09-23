@@ -10,13 +10,14 @@ where to read the rest. **It deliberately does not restate requirements
 
 | Working in | Read first |
 |---|---|
-| anything | `doc/requirements.md` (the map: seams, decisions §8, open questions §9) and `doc/architecture.md` (packages, edges, build order §5) |
+| anything | `doc/requirements.md` (the map: seams, decisions §8, open questions §9), `doc/architecture.md` (packages, edges, build order §5) and `doc/conventions.md` (naming, style, test and commit names) |
 | `dev.consolekit.core` | `doc/core/requirements.md`, `doc/core/architecture.md` |
 | `dev.consolekit.text` | `doc/text/requirements.md`, `doc/text/architecture.md` |
 | `dev.consolekit.bitmap` | `doc/bitmap/requirements.md`, `doc/bitmap/art-format.md`, `doc/bitmap/architecture.md` |
 | `dev.consolekit.canvas` | `doc/canvas/requirements.md`, `doc/canvas/architecture.md` |
 
-Precedence: requirements > architecture > this file > any existing code.
+Precedence: requirements > architecture > conventions > this file > any
+existing code.
 If two documents disagree, **stop and ask** — do not invent a third
 reading, and do not "fix" the spec to match code.
 
@@ -75,7 +76,7 @@ one fails, the code is wrong, not the test.
 ```
 mvn -q verify                                  # the gate
 mvn -q -Dtest=CellBufferTest test              # one class
-mvn -q -Dtest=CellBufferTest#compositeKeepsGlyph test
+mvn -q -Dtest=CellBufferTest#cr41_compositeKeepsGlyphWhenSourceAbsent test
 mvn -q verify -Dconsolekit.golden.update=true  # regenerate goldens — see below
 ```
 
