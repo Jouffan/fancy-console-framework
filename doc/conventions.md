@@ -26,16 +26,34 @@ NFR-10 scans.
 |---|---|---|
 | Package | lowercase, one word, singular | `widget`, `event`, `internal` |
 | Type | UpperCamel noun. No `I`, `Impl`, `Abstract`, `Base`, `Manager`, `Helper` or `Util` | `CellBuffer`, `TerminalPort` |
-| Acronym | cased as a word | `Ansi`, `Sgr`, `Utf8Probe`, `WidgetId` |
+| Acronym | one word, cased as one word | `Ansi`, `Sgr`, `Utf8Probe`, `WidgetId` |
 | Method | lowerCamel verb, or noun for accessors | `composite`, `dump`, `width()` |
 | Accessor | record style, no `get` prefix | `width()`, `style()`. `get(x, y)` is an indexed read, not a getter |
 | Boolean | `is` / `has` / `can` | `isTransparent()`, `hasGlyph()` |
 | Constant | `UPPER_SNAKE` for `static final` immutable values | `Color.DEFAULT`, `Cell.TRANSPARENT` |
 | Field / local | lowerCamel. No Hungarian notation, no `m`/`_` prefix | `clipX` |
+| Parameter | same name as the field it lands in | `this.width = width` |
+| Index | one letter for the axis; a word when two share a loop | `x`, `y`, `i`; `row`, `slot` |
 | Type parameter | single capital letter | `T` |
 
 Spelling: identifiers use US spelling, matching the JDK (`Color`,
 `center`). Prose and Javadoc follow the documents (British: "colour").
+
+**Acronyms.** An acronym is one word, in both cases. Two letters stay
+upper: `IO`, `ioStream`. Three or more take a capital and then lower:
+`Ascii`, `asciiCode`, never `ASCIICode`. Two adjacent acronyms stay two
+words: `utf8Probe`, not `utf8probe`. A name the documents already give
+(`Ansi`, `Sgr`, `WidgetId`) is not respelt to fit this.
+
+**Indexes.** A loop over one axis uses one letter: `x` and `y` for a
+grid, `i` otherwise. When one loop walks two sequences, each index is a
+word (`slot`, `frame`) so the two cannot be swapped unread. No `idx`,
+no `index1`.
+
+**Parameters match fields.** A parameter that is stored is named as the
+field, and the assignment is `this.width = width`. Do not invent `w`,
+`newWidth` or `widthIn` for that parameter. A parameter that is not
+stored may be short (`w`, `h` on `CellBuffer.of`).
 
 **Factory verbs.** Use the ones the specification already uses, and no
 others unless a document names them:
@@ -67,7 +85,26 @@ others unless a document names them:
   snippet (NFR-1).
 - **Exports.** Add a package's `exports` line to `module-info.java` in
   the same commit as its first class. Never export `*.internal` (NFR-9b).
-- `var` is fine when the type is obvious from the right-hand side.
+- **Write the type.** No `var`. The type sits on the left, where a
+  reader does not have to reconstruct it from the right-hand side.
+
+## 3.1 Control flow
+
+- **A method, not a lambda.** A lambda is allowed only as a one-expression
+  argument that captures nothing. A block, a capture, a nest, or a body
+  you would name in a comment is a named method. A named method can
+  carry the requirement ID and a test; a lambda cannot. This is also
+  why a hot path has no capturing lambda (NFR-5).
+- **`switch` for a sealed type.** Dispatch on a sealed hierarchy
+  (`WidgetEvent`) is a `switch` over the permitted types, not an
+  `if`/`else if` chain of `instanceof`. The `switch` is exhaustive, so
+  a new permitted type fails the build instead of falling through.
+- **One absence channel.** Domain absence is a value, and there is one
+  of them: an unset style channel, a missing glyph, `Cell.TRANSPARENT`
+  (CR-41). Do not also return `null` or `Optional` for that absence.
+  `OptionalInt` is allowed only where a document names it
+  (`KeyEvent.codePoint`). `null` is an illegal argument, rejected by a
+  guard, not a third way to say "absent".
 
 ## 4. Errors
 
