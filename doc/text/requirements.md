@@ -25,7 +25,7 @@ directly and MUST NOT depend on this part (CR-43).
   capabilities (colour depth, glyph tier) and the ambient width (CR-45)
   because those come from the JDK and environment, not from a terminal
   library. Discovering width via JLine is a defect — and, since JLine is
-  referenced only under `dev.consolekit.canvas` (CR-22), also a layering
+  referenced only by `canvas.internal.TerminalPort` (CR-22), also a layering
   failure the CR-43 scan catches.
 - **TX-3** When the environment can't render escapes, text mode MUST
   return the string unchanged rather than emitting anything.
