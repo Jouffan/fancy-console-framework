@@ -104,7 +104,7 @@ others unless a document names them:
   (CR-41). Do not also return `null` or `Optional` for that absence.
   `OptionalInt` is allowed only where a document names it
   (`KeyEvent.codePoint`). `null` is an illegal argument, rejected by a
-  guard, not a third way to say "absent".
+  guard (§4), not a third way to say "absent".
 
 ## 4. Errors
 
@@ -119,6 +119,29 @@ others unless a document names them:
 - Never swallow an exception silently. The only place that catches
   broadly is the CR-24 render boundary, which warns once. There is no
   logging framework (CR-25).
+
+**Guards.** A public `of`, `parse`, `load`, `write` or `build` checks
+its arguments before it mutates anything. The check is an explicit `if`
+and a `throw`, one argument per guard, so the message names the one that
+failed:
+
+```java
+if (input == null) throw new IllegalArgumentException("input must not be null");
+if (width <= 0) throw new IllegalArgumentException("width must be > 0: " + width);
+```
+
+One form for null and for range. A guard is one line, no braces, when
+the body is a single `throw` or `return` and the line fits in 120
+columns. Guards come first; the rest of the method is the straight
+line, not the body of `if (input != null)`.
+
+No nullness annotation. An annotation does not run, and the only runtime
+dependency is JLine (NFR-8). No `Objects.requireNonNull`: its message is
+only the name.
+
+Do not guard a render path (CR-24): it never throws, and absence is a
+value (CR-41). Do not re-check in a private helper on a hot path when
+the public door already checked.
 
 ## 5. Hot paths (NFR-5)
 
@@ -139,10 +162,16 @@ else, write the clear code first.
 - Every public type has Javadoc with a usage snippet (NFR-1). Use
   `{@snippet :` for it, not `<pre>`. Public methods get Javadoc when
   their behaviour is not obvious from their name and types.
-- Cite the requirement a type or method implements:
-  `Implements CR-46.` in Javadoc.
-- Comments say *why*. If a line exists only because of a requirement,
-  the comment names the ID: `// CR-46: never leave a wide cell split`.
+- A comment states **intention**, never what the next line does, and
+  never a requirement ID. Names carry the everyday explanation;
+  `// check width` above a guard is noise. Intention is the invariant or
+  the choice a reader would otherwise "simplify": `// never leave a wide
+  cell split`. A review checks the code against that intention. Without
+  it the reviewer can only check that the code runs.
+- The link from code to a requirement is the test name and the commit
+  subject, not a comment. An ID copied into a comment is a second copy of
+  the spec: when the requirement is amended or moved, the comment goes
+  stale and the review trusts it. Do not add one to keep the two in step.
 - No commented-out code, no `TODO` without a milestone
   (`// TODO(M3): ...`).
 
